@@ -1,0 +1,28 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    # Schema is the live goose migrations — single source of truth, no shadow DDL.
+    schema: "../../migrations"
+    queries: "query"
+    gen:
+      go:
+        package: "sqlcdb"
+        out: "sqlcdb"
+        sql_package: "pgx/v5"
+        emit_interface: true
+        emit_empty_slices: true
+        overrides:
+          # Map Postgres time/null types to plain Go types so the hand-written
+          # store layer works with time.Time and pointers, not pgtype wrappers.
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              type: "time.Time"
+              pointer: true
+          - db_type: "text"
+            nullable: true
+            go_type:
+              type: "string"
+              pointer: true

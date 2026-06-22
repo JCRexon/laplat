@@ -78,6 +78,12 @@ func New(t *testing.T) *PG {
 	return pg
 }
 
+// ConnString is a libpq DSN for connecting a Go driver (pgx) to this cluster
+// over its unix socket. Used by the data-access layer's integration tests.
+func (p *PG) ConnString() string {
+	return "host=" + p.socket + " user=postgres dbname=" + p.dbName
+}
+
 // Exec runs SQL and returns an error if Postgres reports one (ON_ERROR_STOP).
 // Tests use this to assert that a constraint or trigger REJECTS bad input.
 func (p *PG) Exec(sql string) error {

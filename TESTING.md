@@ -33,9 +33,9 @@ Durable suites that must never be deleted:
   | A-1 (JWT forgery / alg confusion) | `TestThreat_A1_RejectsAlgNone`, `_RejectsHMACConfusion`, `_RejectsTamperedPayload`, `_RejectsUnknownKeyID`, `_RejectsWrongKey` | `pkg/token` |
   | A-2 (consent-ledger integrity) | `TestThreat_A2_ConsentSignatureCoversGranted`, `_ConsentEncodingNoFieldInjection` | `pkg/contracts` |
   | A-3 (grant over-scoping) | `TestThreat_A3_GrantLeastPrivilege` | `pkg/contracts` |
-  | A-5 (token replay / revocation) | `TestThreat_A5_RejectsExpired`, `_RejectsDenylistedJTI`, `_RejectsSupersededTokenVersion` | `pkg/token` |
+  | A-5 (token replay / revocation) | `TestThreat_A5_RejectsExpired`, `_RejectsDenylistedJTI`, `_RejectsSupersededTokenVersion` (`pkg/token`); `_RefreshReuseRevokesFamily` *(integration, `internal/store`)* | `pkg/token`, `internal/store` |
   | B-1/B-2 (subject injection) | `TestThreat_B2_SubjectTokenRejectsInjection` | `pkg/validate` |
-  | C-4 (direct-session DoS) | `TestThreat_C4_DirectSessionParticipantCap` *(integration)* | `internal/dbtest` |
+  | C-4 (direct-session DoS) | `TestThreat_C4_DirectSessionParticipantCap`, `_DirectSessionCapIsConcurrencySafe` *(integration)* | `internal/dbtest` |
 
 - **Contract-golden** — `TestGolden_*` in `pkg/contracts` snapshot the wire shape
   of the frozen contracts (JWT claim keys, canonical consent encoding, NATS
@@ -57,5 +57,8 @@ security-acceptance suite is the hard gate, not a coverage number. `make vuln`
 runs `govulncheck` (E-2).
 
 ## CI
-Not configured yet (deliberate). When added, CI runs `make check`, then
-`test-integration` with a Postgres service, plus `vuln` and `go.sum` integrity.
+GitHub Actions (`.github/workflows/ci.yml`) runs on pushes to `master`/`claude/**`
+and on every PR: module hygiene (`go mod verify` + tidy-drift check), `make check`
+(gofmt + vet + unit + security-acceptance), `make test-integration` (boots an
+ephemeral Postgres from the apt-installed server binaries), and `make vuln`
+(`govulncheck`, E-2) on the pinned `go1.25.11` toolchain.
