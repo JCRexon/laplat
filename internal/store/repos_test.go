@@ -142,3 +142,74 @@ func Test_Identity_VerifyThenRevoke(t *testing.T) {
 		t.Fatalf("after revoke: is_adult=%v status=%q", id.IsAdult, id.VerificationStatus)
 	}
 }
+
+// Defence in depth: revoking a verified adult identity must demote a currently
+// active user AND bump their token_version so outstanding access tokens stop
+// validating immediately (00004 trigger).
+func Test_Identity_RevokeDemotesActiveUserAndRevokesTokens(t *testing.T) {
+	s, ctx := newStore(t)
+	if err := s.CreateIdentityRecord(ctx, userA); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.VerifyAdultIdentity(ctx, userA, "ref-1", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ActivateUser(ctx, userA); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.CurrentTokenVersion(ctx, userA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.RevokeIdentityVerification(ctx, userA); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := s.GetUser(ctx, userA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Status != "suspended" {
+		t.Fatalf("status after identity revoke = %q, want suspended", u.Status)
+	}
+	after, _ := s.CurrentTokenVersion(ctx, userA)
+	if after <= before {
+		t.Fatalf("token_version = %d, want > %d (revoke-all on downgrade)", after, before)
+	}
+}
+
+// With cap semantics counting only present participants (00004), a peer who
+// leaves frees their slot: a replacement can be admitted, but a genuine third
+// concurrent participant is still rejected.
+func Test_Sessions_LeaveFreesDirectSlot(t *testing.T) {
+	s, ctx := newStore(t)
+	for _, id := range []string{userB, userC} {
+		if _, err := s.CreateUser(ctx, store.NewUser{ID: id, Handle: "h" + id[:4], DisplayName: "n"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.CreateSession(ctx, store.NewSession{ID: "S1", Kind: "direct", LivekitRoom: "room-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddParticipant(ctx, "S1", userA, "participant"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddParticipant(ctx, "S1", userB, "participant"); err != nil {
+		t.Fatal(err)
+	}
+	// Room is full: a third concurrent participant is rejected.
+	if err := s.AddParticipant(ctx, "S1", userC, "participant"); err == nil {
+		t.Fatal("third concurrent participant should be rejected")
+	}
+	// userB leaves, freeing a slot; userC can now be admitted.
+	if err := s.RemoveParticipant(ctx, "S1", userB); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddParticipant(ctx, "S1", userC, "participant"); err != nil {
+		t.Fatalf("re-admission after a peer left should succeed: %v", err)
+	}
+	if active, _ := s.ListActiveParticipants(ctx, "S1"); len(active) != 2 {
+		t.Fatalf("active participants = %d, want 2", len(active))
+	}
+}

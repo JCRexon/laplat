@@ -17,6 +17,7 @@ import (
 const (
 	userA = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	userB = "01BRZ3NDEKTSV4RRFFQ69G5FAV"
+	userC = "01CRZ3NDEKTSV4RRFFQ69G5FAV"
 )
 
 // newStore boots a throwaway Postgres, opens a pgx pool against it, seeds one
