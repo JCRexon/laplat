@@ -57,5 +57,8 @@ security-acceptance suite is the hard gate, not a coverage number. `make vuln`
 runs `govulncheck` (E-2).
 
 ## CI
-Not configured yet (deliberate). When added, CI runs `make check`, then
-`test-integration` with a Postgres service, plus `vuln` and `go.sum` integrity.
+GitHub Actions (`.github/workflows/ci.yml`) runs on pushes to `master`/`claude/**`
+and on every PR: module hygiene (`go mod verify` + tidy-drift check), `make check`
+(gofmt + vet + unit + security-acceptance), `make test-integration` (boots an
+ephemeral Postgres from the apt-installed server binaries), and `make vuln`
+(`govulncheck`, E-2) on the pinned `go1.25.11` toolchain.

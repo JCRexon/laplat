@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [master, "claude/**"]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save runner time.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Pinned to the patched toolchain that go.mod's `toolchain` directive
+          # requires — keeps govulncheck's stdlib assessment clean.
+          go-version: "1.25.11"
+          cache: true
+
+      - name: Module hygiene (go.mod/go.sum tidy, no drift)
+        run: |
+          go mod verify
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Quality gate (gofmt + vet + unit + security-acceptance)
+        run: make check
+
+      - name: Install PostgreSQL server binaries
+        # The integration harness boots its own ephemeral cluster via
+        # initdb/pg_ctl, auto-discovered under /usr/lib/postgresql/*/bin.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+
+      - name: Integration tests (boots ephemeral Postgres)
+        run: make test-integration
+
+      - name: Vulnerability scan (E-2)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Run govulncheck
+        run: make vuln
