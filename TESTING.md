@@ -33,7 +33,7 @@ Durable suites that must never be deleted:
   | A-1 (JWT forgery / alg confusion) | `TestThreat_A1_RejectsAlgNone`, `_RejectsHMACConfusion`, `_RejectsTamperedPayload`, `_RejectsUnknownKeyID`, `_RejectsWrongKey` | `pkg/token` |
   | A-2 (consent-ledger integrity) | `TestThreat_A2_ConsentSignatureCoversGranted`, `_ConsentEncodingNoFieldInjection` | `pkg/contracts` |
   | A-3 (grant over-scoping) | `TestThreat_A3_GrantLeastPrivilege` | `pkg/contracts` |
-  | A-5 (token replay / revocation) | `TestThreat_A5_RejectsExpired`, `_RejectsDenylistedJTI`, `_RejectsSupersededTokenVersion` | `pkg/token` |
+  | A-5 (token replay / revocation) | `TestThreat_A5_RejectsExpired`, `_RejectsDenylistedJTI`, `_RejectsSupersededTokenVersion` (`pkg/token`); `_RefreshReuseRevokesFamily` *(integration, `internal/store`)* | `pkg/token`, `internal/store` |
   | B-1/B-2 (subject injection) | `TestThreat_B2_SubjectTokenRejectsInjection` | `pkg/validate` |
   | C-4 (direct-session DoS) | `TestThreat_C4_DirectSessionParticipantCap`, `_DirectSessionCapIsConcurrencySafe` *(integration)* | `internal/dbtest` |
 
