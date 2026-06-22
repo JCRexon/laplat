@@ -1,0 +1,15 @@
+# Planning / design docs are deliberately kept OUT of the repo — they don't
+# need public view (project decision). The authoritative, machine-checkable
+# source of truth is pkg/contracts + the goose migrations, which ARE committed.
+/docs/
+
+# Go build output
+/bin/
+*.test
+*.out
+coverage.*
+
+# Local env / secrets — never commit (CLAUDE.md: config via env vars only)
+.env
+.env.*
+*.local
