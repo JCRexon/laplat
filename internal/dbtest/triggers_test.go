@@ -2,7 +2,11 @@
 
 package dbtest
 
-import "testing"
+import (
+	"sync"
+	"testing"
+	"time"
+)
 
 // These run only under `-tags=integration` against a real Postgres, because
 // triggers and CHECK constraints cannot be exercised from Go unit tests.
@@ -44,6 +48,63 @@ func TestThreat_C4_DirectSessionParticipantCap(t *testing.T) {
 	pg.MustExec(`INSERT INTO session_participants (session_id, user_id, role) VALUES ('S1','` + userB + `','participant');`)
 	if err := pg.Exec(`INSERT INTO session_participants (session_id, user_id, role) VALUES ('S1','` + userC + `','participant');`); err == nil {
 		t.Fatal("expected the third participant on a direct session to be rejected")
+	}
+}
+
+// The cap must hold under concurrency, not just sequentially. Two admissions
+// race for the one remaining slot: Tx1 holds its insert open (pg_sleep) while
+// Tx2 tries to admit a third participant concurrently. Before the row lock was
+// added, Tx2's count saw only committed rows (one), so it wrongly admitted a
+// third; the FOR UPDATE lock on the session row now serialises them so exactly
+// one wins. This is the regression test for that race.
+func TestThreat_C4_DirectSessionCapIsConcurrencySafe(t *testing.T) {
+	pg := New(t)
+
+	for _, id := range []string{userA, userB, userC} {
+		pg.MustExec(`INSERT INTO users (id, handle, display_name) VALUES ('` + id + `', 'h` + id[:4] + `', 'n');`)
+	}
+	pg.MustExec(`INSERT INTO sessions (id, kind, livekit_room) VALUES ('S1', 'direct', 'room-1');`)
+	pg.MustExec(`INSERT INTO session_participants (session_id, user_id, role) VALUES ('S1','` + userA + `','participant');`)
+
+	var wg sync.WaitGroup
+	var err1, err2 error
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Holds the row lock for the duration of the sleep, then commits.
+		err1 = pg.Exec(`BEGIN; INSERT INTO session_participants (session_id, user_id, role) VALUES ('S1','` + userB + `','participant'); SELECT pg_sleep(2); COMMIT;`)
+	}()
+	time.Sleep(500 * time.Millisecond) // ensure Tx2 starts while Tx1 holds the lock
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err2 = pg.Exec(`INSERT INTO session_participants (session_id, user_id, role) VALUES ('S1','` + userC + `','participant');`)
+	}()
+	wg.Wait()
+
+	if err1 != nil {
+		t.Fatalf("first concurrent admission should have succeeded: %v", err1)
+	}
+	if err2 == nil {
+		t.Fatal("expected the concurrent third admission to be rejected")
+	}
+	// Belt and braces: the table must never hold a third row regardless of timing.
+	if err := pg.Exec(`DO $$ BEGIN
+		IF (SELECT count(*) FROM session_participants WHERE session_id='S1') <> 2 THEN
+			RAISE EXCEPTION 'cap breached';
+		END IF;
+	END $$;`); err != nil {
+		t.Fatalf("direct session must hold exactly 2 participants: %v", err)
+	}
+}
+
+// Handles must be unique case-insensitively, so 'An' cannot be squatted as
+// 'an' (impersonation). The functional unique index added in 00003 enforces it.
+func Test_HandleUniquenessIsCaseInsensitive(t *testing.T) {
+	pg := New(t)
+	pg.MustExec(`INSERT INTO users (id, handle, display_name) VALUES ('` + userA + `', 'An', 'An');`)
+	if err := pg.Exec(`INSERT INTO users (id, handle, display_name) VALUES ('` + userB + `', 'an', 'an');`); err == nil {
+		t.Fatal("expected a case-variant duplicate handle to be rejected")
 	}
 }
 

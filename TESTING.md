@@ -35,7 +35,7 @@ Durable suites that must never be deleted:
   | A-3 (grant over-scoping) | `TestThreat_A3_GrantLeastPrivilege` | `pkg/contracts` |
   | A-5 (token replay / revocation) | `TestThreat_A5_RejectsExpired`, `_RejectsDenylistedJTI`, `_RejectsSupersededTokenVersion` | `pkg/token` |
   | B-1/B-2 (subject injection) | `TestThreat_B2_SubjectTokenRejectsInjection` | `pkg/validate` |
-  | C-4 (direct-session DoS) | `TestThreat_C4_DirectSessionParticipantCap` *(integration)* | `internal/dbtest` |
+  | C-4 (direct-session DoS) | `TestThreat_C4_DirectSessionParticipantCap`, `_DirectSessionCapIsConcurrencySafe` *(integration)* | `internal/dbtest` |
 
 - **Contract-golden** — `TestGolden_*` in `pkg/contracts` snapshot the wire shape
   of the frozen contracts (JWT claim keys, canonical consent encoding, NATS
