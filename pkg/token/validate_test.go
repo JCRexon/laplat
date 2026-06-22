@@ -68,7 +68,7 @@ func TestValidateOK(t *testing.T) {
 }
 
 // A-5: a denylisted jti is rejected (single-token revocation).
-func TestValidateRejectsDenylistedJTI(t *testing.T) {
+func TestThreat_A5_RejectsDenylistedJTI(t *testing.T) {
 	claims := validClaims()
 	tok, v := newSignedToken(t, claims)
 	rev := newMemRevocations()
@@ -83,7 +83,7 @@ func TestValidateRejectsDenylistedJTI(t *testing.T) {
 
 // A-5: bumping the user's token_version invalidates an already-minted token
 // (revoke-all).
-func TestValidateRejectsSupersededTokenVersion(t *testing.T) {
+func TestThreat_A5_RejectsSupersededTokenVersion(t *testing.T) {
 	claims := validClaims() // minted at tver 1
 	tok, v := newSignedToken(t, claims)
 	rev := newMemRevocations()

@@ -8,7 +8,7 @@ import (
 // The consent boolean MUST be covered by the signature — flipping Granted must
 // change the signed bytes (the flaw in the earlier spec was signing a tuple
 // that omitted Granted).
-func TestConsentSignedPayloadCoversGranted(t *testing.T) {
+func TestThreat_A2_ConsentSignatureCoversGranted(t *testing.T) {
 	base := ConsentRecord{
 		SchemaVersion: ConsentSchemaVersion,
 		ID:            "01JCONSENT",
@@ -43,7 +43,7 @@ func TestConsentSignedPayloadDeterministic(t *testing.T) {
 
 // Length-prefixing must prevent two different field partitions producing the
 // same bytes (field-injection / canonicalisation forgery).
-func TestConsentSignedPayloadNoFieldInjection(t *testing.T) {
+func TestThreat_A2_ConsentEncodingNoFieldInjection(t *testing.T) {
 	a := ConsentRecord{SessionID: "ab", SubjectID: "c"}
 	b := ConsentRecord{SessionID: "a", SubjectID: "bc"}
 	if bytes.Equal(a.SignedPayload(), b.SignedPayload()) {
@@ -51,7 +51,7 @@ func TestConsentSignedPayloadNoFieldInjection(t *testing.T) {
 	}
 }
 
-func TestVideoGrantLeastPrivilege(t *testing.T) {
+func TestThreat_A3_GrantLeastPrivilege(t *testing.T) {
 	sub := VideoGrantForScope(ScopeSubscriber, "sess-1")
 	if sub.CanPublish || sub.CanPublishData {
 		t.Error("subscriber must not be able to publish media or data (A-3 least privilege)")

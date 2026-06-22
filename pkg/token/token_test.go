@@ -60,7 +60,7 @@ func TestSignVerifyRoundTrip(t *testing.T) {
 }
 
 // A-1: a token with alg "none" and no signature must be rejected.
-func TestVerifyRejectsAlgNone(t *testing.T) {
+func TestThreat_A1_RejectsAlgNone(t *testing.T) {
 	pub, _ := newKeyPair(t)
 	v := NewVerifier(map[string]ed25519.PublicKey{"k1": pub})
 
@@ -76,7 +76,7 @@ func TestVerifyRejectsAlgNone(t *testing.T) {
 
 // A-1: HS/RS confusion — attacker uses the Ed25519 public key as an HMAC
 // secret and claims alg HS256. Must be rejected at the alg pin.
-func TestVerifyRejectsHMACConfusion(t *testing.T) {
+func TestThreat_A1_RejectsHMACConfusion(t *testing.T) {
 	pub, _ := newKeyPair(t)
 	v := NewVerifier(map[string]ed25519.PublicKey{"k1": pub})
 
@@ -93,7 +93,7 @@ func TestVerifyRejectsHMACConfusion(t *testing.T) {
 	}
 }
 
-func TestVerifyRejectsTamperedPayload(t *testing.T) {
+func TestThreat_A1_RejectsTamperedPayload(t *testing.T) {
 	pub, priv := newKeyPair(t)
 	signer, _ := NewSigner("k1", priv)
 	v := NewVerifier(map[string]ed25519.PublicKey{"k1": pub})
@@ -113,7 +113,7 @@ func TestVerifyRejectsTamperedPayload(t *testing.T) {
 	}
 }
 
-func TestVerifyRejectsUnknownKeyID(t *testing.T) {
+func TestThreat_A1_RejectsUnknownKeyID(t *testing.T) {
 	_, priv := newKeyPair(t)
 	otherPub, _ := newKeyPair(t)
 	signer, _ := NewSigner("k1", priv)
@@ -126,7 +126,7 @@ func TestVerifyRejectsUnknownKeyID(t *testing.T) {
 	}
 }
 
-func TestVerifyRejectsWrongKey(t *testing.T) {
+func TestThreat_A1_RejectsWrongKey(t *testing.T) {
 	_, priv := newKeyPair(t)
 	wrongPub, _ := newKeyPair(t)
 	signer, _ := NewSigner("k1", priv)
@@ -139,7 +139,8 @@ func TestVerifyRejectsWrongKey(t *testing.T) {
 	}
 }
 
-func TestVerifyRejectsExpired(t *testing.T) {
+// A-5: short-TTL enforcement — an expired token must not validate.
+func TestThreat_A5_RejectsExpired(t *testing.T) {
 	pub, priv := newKeyPair(t)
 	signer, _ := NewSigner("k1", priv)
 	v := NewVerifier(map[string]ed25519.PublicKey{"k1": pub})
