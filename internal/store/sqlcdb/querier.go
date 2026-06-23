@@ -9,6 +9,10 @@ import (
 )
 
 type Querier interface {
+	// Terms-of-Service acceptances, including the explicit 18+ self-attestation that
+	// backs the 'declared' identity-assurance tier.
+	// Idempotent per (user, version): re-accepting updates the attestation/time.
+	AcceptToS(ctx context.Context, arg AcceptToSParams) error
 	// Subject to trg_enforce_adult_activation: fails unless a verified adult
 	// identity exists for the user.
 	ActivateUser(ctx context.Context, id string) error
@@ -53,6 +57,8 @@ type Querier interface {
 	// Login lookup. Case-insensitive (matches the lower(handle) unique index) and
 	// excludes soft-deleted accounts.
 	GetUserByHandle(ctx context.Context, lower string) (User, error)
+	// True if the user has self-attested 18+ under any ToS version.
+	HasAdultAttestation(ctx context.Context, userID string) (bool, error)
 	IncrementLoginChallengeAttempts(ctx context.Context, id string) error
 	// Access-token revocation state (A-5): the parts of validation the stateless
 	// signature check cannot answer. Backs token.RevocationStore.

@@ -114,6 +114,22 @@ func (s *Store) GetIdentity(ctx context.Context, userID string) (Identity, error
 	return s.q.GetIdentity(ctx, userID)
 }
 
+// --- terms of service / age attestation --------------------------------------
+
+// AcceptToS records (idempotently) a user's acceptance of a ToS version and
+// whether they attested to being an adult. An adult attestation backs the
+// 'declared' assurance tier and permits activation without eKYC.
+func (s *Store) AcceptToS(ctx context.Context, userID, version string, adultAttested bool) error {
+	return s.q.AcceptToS(ctx, sqlcdb.AcceptToSParams{
+		UserID: userID, TosVersion: version, AdultAttested: adultAttested,
+	})
+}
+
+// HasAdultAttestation reports whether the user has self-attested 18+.
+func (s *Store) HasAdultAttestation(ctx context.Context, userID string) (bool, error) {
+	return s.q.HasAdultAttestation(ctx, userID)
+}
+
 // --- federated (OIDC) identities ---------------------------------------------
 
 // FederatedIdentity is the link between an external (provider, subject) and a

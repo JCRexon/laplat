@@ -15,16 +15,30 @@ const (
 	TokenTyp = "JWT"
 )
 
-// IdentityVerificationState is the Decree-147 identity-verification status the
-// token asserts. It states THAT verification passed, never the underlying
-// identity — no PII ever rides in a claim (A-6).
+// IdentityVerificationState is the identity-assurance tier the token asserts.
+// It states the LEVEL of assurance, never the underlying identity — no PII ever
+// rides in a claim (A-6). The tiers are ordered none < declared < verified and
+// gate progressively riskier actions:
+//
+//	none      browse only (no attestation)
+//	declared  self-attested 18+ (tos_acceptances.adult_attested) — general features
+//	verified  eKYC-verified adult — high-risk actions (instruct, 1:1 rooms, payments)
+//
+// "pending" is orthogonal: an eKYC check is in flight. A user who is already
+// "declared" keeps that tier while a verification is pending.
 type IdentityVerificationState string
 
 const (
 	IdentityVerified IdentityVerificationState = "verified"
+	IdentityDeclared IdentityVerificationState = "declared"
 	IdentityPending  IdentityVerificationState = "pending"
 	IdentityNone     IdentityVerificationState = "none"
 )
+
+// CurrentToSVersion is the Terms-of-Service version a self-declaration is
+// recorded against. Bump it when the ToS (and its 18+ attestation) change so
+// users must re-attest.
+const CurrentToSVersion = "2025-06-01"
 
 // Capability is a GLOBAL capability carried in the token. Per-room and
 // per-class roles are deliberately NOT carried here — they are derived at
@@ -71,6 +85,18 @@ type AccessTokenClaims struct {
 
 	// Capabilities are GLOBAL capabilities only (see Capability).
 	Capabilities []Capability `json:"caps"`
+}
+
+// IsVerifiedAdult reports eKYC-verified assurance (the high-risk tier:
+// instructing, 1:1 rooms, payments).
+func (c AccessTokenClaims) IsVerifiedAdult() bool {
+	return c.IdentityVerification == IdentityVerified
+}
+
+// MeetsAdultDeclaration reports at-least self-attested-18+ assurance (the
+// general-features tier). Verified satisfies it too.
+func (c AccessTokenClaims) MeetsAdultDeclaration() bool {
+	return c.IdentityVerification == IdentityVerified || c.IdentityVerification == IdentityDeclared
 }
 
 // HasCapability reports whether the claims carry the given global capability.

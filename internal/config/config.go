@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,6 +23,10 @@ const (
 	EnvVerifyKeys = "LAPLAT_TOKEN_VERIFY_KEYS" // "kid:base64pub,kid2:base64pub"
 	EnvAccessTTL  = "LAPLAT_ACCESS_TTL"
 	EnvRefreshTTL = "LAPLAT_REFRESH_TTL"
+
+	// Per-client rate limiting (requests/sec and burst). Defaults apply when unset.
+	EnvRateLimitRPS   = "LAPLAT_RATE_LIMIT_RPS"
+	EnvRateLimitBurst = "LAPLAT_RATE_LIMIT_BURST"
 
 	// OIDC federated login (all optional; a provider is enabled only when its
 	// full set of variables is present).
@@ -43,22 +48,26 @@ const (
 
 // Defaults.
 const (
-	defaultHTTPAddr   = ":8080"
-	defaultAccessTTL  = 15 * time.Minute
-	defaultRefreshTTL = 30 * 24 * time.Hour
+	defaultHTTPAddr       = ":8080"
+	defaultAccessTTL      = 15 * time.Minute
+	defaultRefreshTTL     = 30 * 24 * time.Hour
+	defaultRateLimitRPS   = 20
+	defaultRateLimitBurst = 40
 )
 
 // Config is the resolved, validated runtime configuration.
 type Config struct {
-	HTTPAddr   string
-	DBDSN      string
-	Kid        string
-	SigningKey ed25519.PrivateKey
-	VerifyKeys map[string]ed25519.PublicKey
-	AccessTTL  time.Duration
-	RefreshTTL time.Duration
-	OIDC       OIDCConfig
-	SMTP       *SMTPConfig // nil unless email-OTP login is configured
+	HTTPAddr       string
+	DBDSN          string
+	Kid            string
+	SigningKey     ed25519.PrivateKey
+	VerifyKeys     map[string]ed25519.PublicKey
+	AccessTTL      time.Duration
+	RefreshTTL     time.Duration
+	RateLimitRPS   float64
+	RateLimitBurst int
+	OIDC           OIDCConfig
+	SMTP           *SMTPConfig // nil unless email-OTP login is configured
 }
 
 // SMTPConfig is the (optional) email-OTP transport configuration.
@@ -135,6 +144,13 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.RefreshTTL, err = parseDuration(getenv(EnvRefreshTTL), defaultRefreshTTL); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", EnvRefreshTTL, err)
+	}
+
+	if cfg.RateLimitRPS, err = parsePositiveFloat(getenv(EnvRateLimitRPS), defaultRateLimitRPS); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", EnvRateLimitRPS, err)
+	}
+	if cfg.RateLimitBurst, err = parsePositiveInt(getenv(EnvRateLimitBurst), defaultRateLimitBurst); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", EnvRateLimitBurst, err)
 	}
 
 	if cfg.OIDC, err = parseOIDC(getenv); err != nil {
@@ -263,6 +279,34 @@ func parseDuration(s string, def time.Duration) (time.Duration, error) {
 		return 0, errors.New("must be positive")
 	}
 	return d, nil
+}
+
+func parsePositiveFloat(s string, def float64) (float64, error) {
+	if strings.TrimSpace(s) == "" {
+		return def, nil
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0, err
+	}
+	if v <= 0 {
+		return 0, errors.New("must be positive")
+	}
+	return v, nil
+}
+
+func parsePositiveInt(s string, def int) (int, error) {
+	if strings.TrimSpace(s) == "" {
+		return def, nil
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return 0, err
+	}
+	if v <= 0 {
+		return 0, errors.New("must be positive")
+	}
+	return v, nil
 }
 
 func orDefault(v, def string) string {
