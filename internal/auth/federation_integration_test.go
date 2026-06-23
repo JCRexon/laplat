@@ -210,6 +210,16 @@ func TestHTTP_OIDC_StartThenCallback(t *testing.T) {
 	}
 	bad.Body.Close()
 
+	// Matching state but NO nonce cookie -> 401. The nonce binding is mandatory
+	// and must not be skippable by dropping the cookie.
+	reqNoNonce, _ := http.NewRequest("GET", srv2.URL+"/v1/auth/oidc/google/callback?code=x&state=S", nil)
+	reqNoNonce.AddCookie(&http.Cookie{Name: "laplat_oidc_state", Value: "S"})
+	noNonce, _ := srv2.Client().Do(reqNoNonce)
+	if noNonce.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("missing nonce status = %d, want 401", noNonce.StatusCode)
+	}
+	noNonce.Body.Close()
+
 	// Matching state + nonce -> 200 with a session.
 	req2, _ := http.NewRequest("GET", srv2.URL+"/v1/auth/oidc/google/callback?code=x&state=S", nil)
 	req2.AddCookie(&http.Cookie{Name: "laplat_oidc_state", Value: "S"})

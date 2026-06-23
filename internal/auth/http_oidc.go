@@ -47,10 +47,14 @@ func (h *Handler) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid oauth state")
 		return
 	}
-	nonce := ""
-	if cNonce != nil {
-		nonce = cNonce.Value
+	// The nonce binds this login to the returned ID token (anti-replay /
+	// anti-injection). It is mandatory: a missing cookie must not silently skip
+	// the binding, since the caller controls which cookies it presents.
+	if cNonce == nil || cNonce.Value == "" {
+		writeError(w, http.StatusUnauthorized, "missing oauth nonce")
+		return
 	}
+	nonce := cNonce.Value
 
 	// One-shot cookies: clear regardless of outcome.
 	clearOIDCCookie(w, stateCookie)
