@@ -17,22 +17,26 @@ const (
 
 // IdentityVerificationState is the identity-assurance tier the token asserts.
 // It states the LEVEL of assurance, never the underlying identity — no PII ever
-// rides in a claim (A-6). The tiers are ordered none < declared < verified and
-// gate progressively riskier actions:
+// rides in a claim (A-6). The tiers are cumulative, ordered
+// none < declared < phone_verified < verified, and gate progressively riskier
+// actions:
 //
-//	none      browse only (no attestation)
-//	declared  self-attested 18+ (tos_acceptances.adult_attested) — general features
-//	verified  eKYC-verified adult — high-risk actions (instruct, 1:1 rooms, payments)
+//	none           browse only (no attestation)
+//	declared       self-attested 18+ — general features, watch recordings
+//	phone_verified declared + a verified phone (Decree 147 interaction floor) —
+//	               live sessions, 1:1 calls, posting/publishing
+//	verified       eKYC-verified adult (national ID) — commercial livestream, payments
 //
-// "pending" is orthogonal: an eKYC check is in flight. A user who is already
-// "declared" keeps that tier while a verification is pending.
+// "pending" is orthogonal: an eKYC check is in flight. A user keeps their
+// existing (declared/phone_verified) tier while a verification is pending.
 type IdentityVerificationState string
 
 const (
-	IdentityVerified IdentityVerificationState = "verified"
-	IdentityDeclared IdentityVerificationState = "declared"
-	IdentityPending  IdentityVerificationState = "pending"
-	IdentityNone     IdentityVerificationState = "none"
+	IdentityVerified      IdentityVerificationState = "verified"
+	IdentityPhoneVerified IdentityVerificationState = "phone_verified"
+	IdentityDeclared      IdentityVerificationState = "declared"
+	IdentityPending       IdentityVerificationState = "pending"
+	IdentityNone          IdentityVerificationState = "none"
 )
 
 // CurrentToSVersion is the Terms-of-Service version a self-declaration is
@@ -87,16 +91,26 @@ type AccessTokenClaims struct {
 	Capabilities []Capability `json:"caps"`
 }
 
-// IsVerifiedAdult reports eKYC-verified assurance (the high-risk tier:
-// instructing, 1:1 rooms, payments).
+// IsVerifiedAdult reports eKYC-verified (national-ID) assurance — the top tier
+// for commercial livestream and payments.
 func (c AccessTokenClaims) IsVerifiedAdult() bool {
 	return c.IdentityVerification == IdentityVerified
 }
 
+// MeetsPhoneVerification reports at-least phone-verified assurance (the Decree
+// 147 interaction floor: live sessions, 1:1 calls, posting/publishing).
+// Verified satisfies it too.
+func (c AccessTokenClaims) MeetsPhoneVerification() bool {
+	return c.IdentityVerification == IdentityVerified ||
+		c.IdentityVerification == IdentityPhoneVerified
+}
+
 // MeetsAdultDeclaration reports at-least self-attested-18+ assurance (the
-// general-features tier). Verified satisfies it too.
+// general-features tier). Phone-verified and verified satisfy it too.
 func (c AccessTokenClaims) MeetsAdultDeclaration() bool {
-	return c.IdentityVerification == IdentityVerified || c.IdentityVerification == IdentityDeclared
+	return c.IdentityVerification == IdentityVerified ||
+		c.IdentityVerification == IdentityPhoneVerified ||
+		c.IdentityVerification == IdentityDeclared
 }
 
 // HasCapability reports whether the claims carry the given global capability.

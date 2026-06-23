@@ -22,6 +22,7 @@ type Querier interface {
 	// superseded. Returns the new version.
 	BumpTokenVersion(ctx context.Context, id string) (int32, error)
 	ConsumeLoginChallenge(ctx context.Context, id string) error
+	ConsumePhoneChallenge(ctx context.Context, id string) error
 	// identity_vault: the only place identity PII lives (encrypted at rest). These
 	// queries write verification *state* and opaque references; raw PII columns
 	// (full_name_enc, dob_enc, ...) are written by the eKYC ingestion path, not
@@ -30,6 +31,7 @@ type Querier interface {
 	// Idempotent so bootstrap/relink paths can call it unconditionally.
 	CreateIdentityRecord(ctx context.Context, userID string) error
 	CreateLoginChallenge(ctx context.Context, arg CreateLoginChallengeParams) error
+	CreatePhoneChallenge(ctx context.Context, arg CreatePhoneChallengeParams) error
 	// Sessions and their participants. The kind/class_id coherence CHECK and the
 	// direct-session participant cap are enforced DB-side; these queries surface
 	// those guarantees rather than re-implementing them.
@@ -41,6 +43,7 @@ type Querier interface {
 	EndSession(ctx context.Context, id string) error
 	// The newest unconsumed, unexpired challenge for an email.
 	GetActiveLoginChallenge(ctx context.Context, email string) (LoginChallenge, error)
+	GetActivePhoneChallenge(ctx context.Context, phone string) (PhoneChallenge, error)
 	// First-party email-OTP login. Login factor only; never adult eKYC.
 	GetEmailIdentity(ctx context.Context, email string) (EmailIdentity, error)
 	// Resolves the rotation family a presented token belongs to (any state), so a
@@ -49,6 +52,9 @@ type Querier interface {
 	// Federated (OIDC) login identities. Login factor only; never adult eKYC.
 	GetFederatedIdentity(ctx context.Context, arg GetFederatedIdentityParams) (FederatedIdentity, error)
 	GetIdentity(ctx context.Context, userID string) (IdentityVault, error)
+	// Phone one-time-code factor: login + the phone_verified assurance tier.
+	GetPhoneIdentity(ctx context.Context, phone string) (PhoneIdentity, error)
+	GetPhoneIdentityByUser(ctx context.Context, userID string) (PhoneIdentity, error)
 	// Locks the row for the duration of the rotation transaction so a token
 	// presented concurrently cannot rotate twice (serialises reuse detection).
 	GetRefreshTokenByHashForUpdate(ctx context.Context, tokenHash []byte) (RefreshToken, error)
@@ -59,7 +65,9 @@ type Querier interface {
 	GetUserByHandle(ctx context.Context, lower string) (User, error)
 	// True if the user has self-attested 18+ under any ToS version.
 	HasAdultAttestation(ctx context.Context, userID string) (bool, error)
+	HasVerifiedPhone(ctx context.Context, userID string) (bool, error)
 	IncrementLoginChallengeAttempts(ctx context.Context, id string) error
+	IncrementPhoneChallengeAttempts(ctx context.Context, id string) error
 	// Access-token revocation state (A-5): the parts of validation the stateless
 	// signature check cannot answer. Backs token.RevocationStore.
 	IsAccessTokenRevoked(ctx context.Context, jti string) (bool, error)
@@ -68,6 +76,7 @@ type Querier interface {
 	IssueRefreshToken(ctx context.Context, arg IssueRefreshTokenParams) error
 	LinkEmailIdentity(ctx context.Context, arg LinkEmailIdentityParams) error
 	LinkFederatedIdentity(ctx context.Context, arg LinkFederatedIdentityParams) error
+	LinkPhoneIdentity(ctx context.Context, arg LinkPhoneIdentityParams) error
 	ListActiveParticipants(ctx context.Context, sessionID string) ([]SessionParticipant, error)
 	MarkRefreshTokenReplaced(ctx context.Context, arg MarkRefreshTokenReplacedParams) error
 	// Grants the platform-moderator capability (backs caps:platform_moderator).
@@ -88,6 +97,7 @@ type Querier interface {
 	SuspendUser(ctx context.Context, id string) error
 	TouchEmailLogin(ctx context.Context, email string) error
 	TouchFederatedLogin(ctx context.Context, arg TouchFederatedLoginParams) error
+	TouchPhoneLogin(ctx context.Context, phone string) error
 	UserExists(ctx context.Context, id string) (bool, error)
 	// Records a successful eKYC: verified adult. This is the state the activation
 	// trigger requires before a user may go active.

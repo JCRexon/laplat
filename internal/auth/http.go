@@ -28,6 +28,7 @@ type Handler struct {
 	validator *token.Validator
 	oidc      *Federation // nil unless RegisterOIDC was called
 	email     *EmailLogin // nil unless RegisterEmailLogin was called
+	phone     *PhoneLogin // nil unless RegisterPhoneLogin was called
 	tos       ToSAcceptor // nil unless RegisterIdentity was called
 	mux       *http.ServeMux
 }

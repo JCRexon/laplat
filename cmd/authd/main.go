@@ -23,6 +23,7 @@ import (
 	"github.com/jcrexon/laplat/internal/emailsend"
 	"github.com/jcrexon/laplat/internal/httpx"
 	"github.com/jcrexon/laplat/internal/identity"
+	"github.com/jcrexon/laplat/internal/smssend"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -107,6 +108,20 @@ func run(log *slog.Logger) error {
 		}
 		handler.RegisterEmailLogin(el)
 		log.Info("email-otp login enabled", "from", cfg.SMTP.From)
+	}
+	if cfg.SMS != nil {
+		sender, err := smssend.New(smssend.Config{
+			URL: cfg.SMS.GatewayURL, Token: cfg.SMS.GatewayToken,
+		}, nil)
+		if err != nil {
+			return err
+		}
+		pl, err := auth.NewPhoneLogin(st, svc, sender)
+		if err != nil {
+			return err
+		}
+		handler.RegisterPhoneLogin(pl)
+		log.Info("phone-otp login enabled")
 	}
 
 	// Rate-limit the API per client IP, but NOT the health probes (k8s must

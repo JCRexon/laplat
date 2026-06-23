@@ -198,6 +198,62 @@ func (s *Store) ConsumeLoginChallenge(ctx context.Context, id string) error {
 	return s.q.ConsumeLoginChallenge(ctx, id)
 }
 
+// --- phone (OTP) login + phone_verified tier ---------------------------------
+
+// PhoneIdentity links a verified E.164 phone to a local user.
+type PhoneIdentity = sqlcdb.PhoneIdentity
+
+// PhoneChallenge is an in-flight phone OTP (stored hashed).
+type PhoneChallenge = sqlcdb.PhoneChallenge
+
+// GetPhoneIdentity looks up the user linked to a phone. pgx.ErrNoRows if absent.
+func (s *Store) GetPhoneIdentity(ctx context.Context, phone string) (PhoneIdentity, error) {
+	return s.q.GetPhoneIdentity(ctx, phone)
+}
+
+// GetPhoneIdentityByUser looks up a user's linked phone. pgx.ErrNoRows if none.
+func (s *Store) GetPhoneIdentityByUser(ctx context.Context, userID string) (PhoneIdentity, error) {
+	return s.q.GetPhoneIdentityByUser(ctx, userID)
+}
+
+// LinkPhoneIdentity records a new phone -> user link.
+func (s *Store) LinkPhoneIdentity(ctx context.Context, phone, userID string) error {
+	return s.q.LinkPhoneIdentity(ctx, sqlcdb.LinkPhoneIdentityParams{Phone: phone, UserID: userID})
+}
+
+// TouchPhoneLogin updates last_login for an existing phone link.
+func (s *Store) TouchPhoneLogin(ctx context.Context, phone string) error {
+	return s.q.TouchPhoneLogin(ctx, phone)
+}
+
+// HasVerifiedPhone reports whether the user has a verified phone binding.
+func (s *Store) HasVerifiedPhone(ctx context.Context, userID string) (bool, error) {
+	return s.q.HasVerifiedPhone(ctx, userID)
+}
+
+// CreatePhoneChallenge stores a new phone OTP challenge.
+func (s *Store) CreatePhoneChallenge(ctx context.Context, id, phone string, codeHash []byte, expiresAt time.Time) error {
+	return s.q.CreatePhoneChallenge(ctx, sqlcdb.CreatePhoneChallengeParams{
+		ID: id, Phone: phone, CodeHash: codeHash, ExpiresAt: expiresAt,
+	})
+}
+
+// GetActivePhoneChallenge returns the newest unconsumed, unexpired challenge for
+// a phone. pgx.ErrNoRows if none.
+func (s *Store) GetActivePhoneChallenge(ctx context.Context, phone string) (PhoneChallenge, error) {
+	return s.q.GetActivePhoneChallenge(ctx, phone)
+}
+
+// IncrementPhoneChallengeAttempts bumps the failed-attempt counter.
+func (s *Store) IncrementPhoneChallengeAttempts(ctx context.Context, id string) error {
+	return s.q.IncrementPhoneChallengeAttempts(ctx, id)
+}
+
+// ConsumePhoneChallenge marks a challenge used (single-use).
+func (s *Store) ConsumePhoneChallenge(ctx context.Context, id string) error {
+	return s.q.ConsumePhoneChallenge(ctx, id)
+}
+
 // --- sessions ----------------------------------------------------------------
 
 // NewSession describes a session to create. For kind="direct", ClassID must be

@@ -39,22 +39,25 @@ func TestIdentityState(t *testing.T) {
 	tests := []struct {
 		status   string
 		declared bool
+		phone    bool
 		want     contracts.IdentityVerificationState
 	}{
-		{"verified", false, contracts.IdentityVerified},
-		{"verified", true, contracts.IdentityVerified}, // eKYC outranks declared
-		{"pending", false, contracts.IdentityPending},
-		{"pending", true, contracts.IdentityDeclared}, // declared keeps tier while eKYC pending
-		{"none", true, contracts.IdentityDeclared},
-		{"none", false, contracts.IdentityNone},
-		{"garbage", false, contracts.IdentityNone}, // anything unexpected downgrades
-		{"", false, contracts.IdentityNone},
-		{"", true, contracts.IdentityDeclared},
+		{"verified", false, false, contracts.IdentityVerified},
+		{"verified", true, true, contracts.IdentityVerified},  // eKYC outranks all
+		{"none", true, true, contracts.IdentityPhoneVerified}, // declared + phone
+		{"none", false, true, contracts.IdentityNone},         // phone alone is not adulthood
+		{"pending", false, true, contracts.IdentityPending},   // phone alone, eKYC pending
+		{"pending", true, true, contracts.IdentityPhoneVerified},
+		{"pending", true, false, contracts.IdentityDeclared}, // declared keeps tier while pending
+		{"none", true, false, contracts.IdentityDeclared},
+		{"none", false, false, contracts.IdentityNone},
+		{"garbage", false, false, contracts.IdentityNone},
+		{"", true, false, contracts.IdentityDeclared},
 	}
 	for _, tc := range tests {
-		got := identityState(store.Identity{VerificationStatus: tc.status}, tc.declared)
+		got := identityState(store.Identity{VerificationStatus: tc.status}, tc.declared, tc.phone)
 		if got != tc.want {
-			t.Fatalf("identityState(%q, declared=%v) = %q, want %q", tc.status, tc.declared, got, tc.want)
+			t.Fatalf("identityState(%q, declared=%v, phone=%v) = %q, want %q", tc.status, tc.declared, tc.phone, got, tc.want)
 		}
 	}
 }

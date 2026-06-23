@@ -44,6 +44,11 @@ const (
 	EnvSMTPFrom     = "LAPLAT_SMTP_FROM"
 	EnvSMTPUsername = "LAPLAT_SMTP_USERNAME"
 	EnvSMTPPassword = "LAPLAT_SMTP_PASSWORD"
+
+	// Phone-OTP login + phone_verified tier (optional). Enabled when the SMS
+	// gateway URL is present.
+	EnvSMSGatewayURL   = "LAPLAT_SMS_GATEWAY_URL"
+	EnvSMSGatewayToken = "LAPLAT_SMS_GATEWAY_TOKEN"
 )
 
 // Defaults.
@@ -68,6 +73,7 @@ type Config struct {
 	RateLimitBurst int
 	OIDC           OIDCConfig
 	SMTP           *SMTPConfig // nil unless email-OTP login is configured
+	SMS            *SMSConfig  // nil unless phone-OTP login is configured
 }
 
 // SMTPConfig is the (optional) email-OTP transport configuration.
@@ -77,6 +83,12 @@ type SMTPConfig struct {
 	From     string
 	Username string
 	Password string
+}
+
+// SMSConfig is the (optional) phone-OTP gateway configuration.
+type SMSConfig struct {
+	GatewayURL   string
+	GatewayToken string
 }
 
 // OIDCConfig is the (optional) federated-login configuration. Google and/or
@@ -159,7 +171,18 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.SMTP, err = parseSMTP(getenv); err != nil {
 		return Config{}, err
 	}
+	cfg.SMS = parseSMS(getenv)
 	return cfg, nil
+}
+
+// parseSMS reads the optional phone-OTP gateway config. Enabled when the gateway
+// URL is present; the token is optional.
+func parseSMS(getenv func(string) string) *SMSConfig {
+	url := strings.TrimSpace(getenv(EnvSMSGatewayURL))
+	if url == "" {
+		return nil // phone login disabled
+	}
+	return &SMSConfig{GatewayURL: url, GatewayToken: getenv(EnvSMSGatewayToken)}
 }
 
 // parseSMTP reads the optional email-OTP transport config. It is enabled only
