@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+type EmailIdentity struct {
+	Email     string
+	UserID    string
+	CreatedAt time.Time
+	LastLogin *time.Time
+}
+
 type FederatedIdentity struct {
 	Provider  string
 	Subject   string
@@ -27,6 +34,16 @@ type IdentityVault struct {
 	EmailEnc           []byte
 	VerifiedAt         *time.Time
 	RetainUntil        *time.Time
+}
+
+type LoginChallenge struct {
+	ID         string
+	Email      string
+	CodeHash   []byte
+	Attempts   int32
+	ExpiresAt  time.Time
+	ConsumedAt *time.Time
+	CreatedAt  time.Time
 }
 
 type RefreshToken struct {

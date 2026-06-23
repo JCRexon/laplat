@@ -17,6 +17,7 @@ type Querier interface {
 	// Revoke-all for a user: every outstanding access token (tver < new) is now
 	// superseded. Returns the new version.
 	BumpTokenVersion(ctx context.Context, id string) (int32, error)
+	ConsumeLoginChallenge(ctx context.Context, id string) error
 	// identity_vault: the only place identity PII lives (encrypted at rest). These
 	// queries write verification *state* and opaque references; raw PII columns
 	// (full_name_enc, dob_enc, ...) are written by the eKYC ingestion path, not
@@ -24,6 +25,7 @@ type Querier interface {
 	// Establishes the vault row in its default unverified, non-adult state.
 	// Idempotent so bootstrap/relink paths can call it unconditionally.
 	CreateIdentityRecord(ctx context.Context, userID string) error
+	CreateLoginChallenge(ctx context.Context, arg CreateLoginChallengeParams) error
 	// Sessions and their participants. The kind/class_id coherence CHECK and the
 	// direct-session participant cap are enforced DB-side; these queries surface
 	// those guarantees rather than re-implementing them.
@@ -33,6 +35,10 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CurrentTokenVersion(ctx context.Context, id string) (int32, error)
 	EndSession(ctx context.Context, id string) error
+	// The newest unconsumed, unexpired challenge for an email.
+	GetActiveLoginChallenge(ctx context.Context, email string) (LoginChallenge, error)
+	// First-party email-OTP login. Login factor only; never adult eKYC.
+	GetEmailIdentity(ctx context.Context, email string) (EmailIdentity, error)
 	// Resolves the rotation family a presented token belongs to (any state), so a
 	// logout can revoke the whole chain.
 	GetFamilyByHash(ctx context.Context, tokenHash []byte) (string, error)
@@ -47,12 +53,14 @@ type Querier interface {
 	// Login lookup. Case-insensitive (matches the lower(handle) unique index) and
 	// excludes soft-deleted accounts.
 	GetUserByHandle(ctx context.Context, lower string) (User, error)
+	IncrementLoginChallengeAttempts(ctx context.Context, id string) error
 	// Access-token revocation state (A-5): the parts of validation the stateless
 	// signature check cannot answer. Backs token.RevocationStore.
 	IsAccessTokenRevoked(ctx context.Context, jti string) (bool, error)
 	// Refresh-token rotation chain (A-5). Tokens are opaque and stored only as a
 	// hash; rotation is single-use with reuse detection at the family level.
 	IssueRefreshToken(ctx context.Context, arg IssueRefreshTokenParams) error
+	LinkEmailIdentity(ctx context.Context, arg LinkEmailIdentityParams) error
 	LinkFederatedIdentity(ctx context.Context, arg LinkFederatedIdentityParams) error
 	ListActiveParticipants(ctx context.Context, sessionID string) ([]SessionParticipant, error)
 	MarkRefreshTokenReplaced(ctx context.Context, arg MarkRefreshTokenReplacedParams) error
@@ -72,6 +80,7 @@ type Querier interface {
 	SoftDeleteUser(ctx context.Context, id string) error
 	StartSession(ctx context.Context, id string) error
 	SuspendUser(ctx context.Context, id string) error
+	TouchEmailLogin(ctx context.Context, email string) error
 	TouchFederatedLogin(ctx context.Context, arg TouchFederatedLoginParams) error
 	UserExists(ctx context.Context, id string) (bool, error)
 	// Records a successful eKYC: verified adult. This is the state the activation

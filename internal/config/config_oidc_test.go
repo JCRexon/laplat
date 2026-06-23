@@ -67,6 +67,41 @@ func TestLoad_AppleConfiguredDecodesKey(t *testing.T) {
 	}
 }
 
+func TestLoad_SMTPDisabledByDefault(t *testing.T) {
+	cfg, err := Load(getenvFrom(baseEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SMTP != nil {
+		t.Fatal("SMTP should be nil with no email env")
+	}
+}
+
+func TestLoad_SMTPConfigured(t *testing.T) {
+	env := baseEnv()
+	env[EnvSMTPHost] = "smtp.example.com"
+	env[EnvSMTPPort] = "587"
+	env[EnvSMTPFrom] = "noreply@laplat.example"
+	env[EnvSMTPUsername] = "u"
+	env[EnvSMTPPassword] = "p"
+
+	cfg, err := Load(getenvFrom(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SMTP == nil || cfg.SMTP.Host != "smtp.example.com" || cfg.SMTP.From != "noreply@laplat.example" {
+		t.Fatalf("smtp not parsed: %+v", cfg.SMTP)
+	}
+}
+
+func TestLoad_SMTPRejectsPartial(t *testing.T) {
+	env := baseEnv()
+	env[EnvSMTPHost] = "smtp.example.com" // port + from missing
+	if _, err := Load(getenvFrom(env)); err == nil {
+		t.Fatal("expected error for partial SMTP config")
+	}
+}
+
 func TestLoad_OIDCRejectsPartialAndMissingRedirect(t *testing.T) {
 	cases := []struct {
 		name string

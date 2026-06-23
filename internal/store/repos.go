@@ -136,6 +136,52 @@ func (s *Store) TouchFederatedLogin(ctx context.Context, provider, subject strin
 	return s.q.TouchFederatedLogin(ctx, sqlcdb.TouchFederatedLoginParams{Provider: provider, Subject: subject})
 }
 
+// --- email (OTP) login -------------------------------------------------------
+
+// EmailIdentity links a normalized email to a local user. Login factor only.
+type EmailIdentity = sqlcdb.EmailIdentity
+
+// LoginChallenge is an in-flight OTP code (stored hashed).
+type LoginChallenge = sqlcdb.LoginChallenge
+
+// GetEmailIdentity looks up the user linked to an email. pgx.ErrNoRows if absent.
+func (s *Store) GetEmailIdentity(ctx context.Context, email string) (EmailIdentity, error) {
+	return s.q.GetEmailIdentity(ctx, email)
+}
+
+// LinkEmailIdentity records a new email -> user link.
+func (s *Store) LinkEmailIdentity(ctx context.Context, email, userID string) error {
+	return s.q.LinkEmailIdentity(ctx, sqlcdb.LinkEmailIdentityParams{Email: email, UserID: userID})
+}
+
+// TouchEmailLogin updates last_login for an existing email link.
+func (s *Store) TouchEmailLogin(ctx context.Context, email string) error {
+	return s.q.TouchEmailLogin(ctx, email)
+}
+
+// CreateLoginChallenge stores a new OTP challenge.
+func (s *Store) CreateLoginChallenge(ctx context.Context, id, email string, codeHash []byte, expiresAt time.Time) error {
+	return s.q.CreateLoginChallenge(ctx, sqlcdb.CreateLoginChallengeParams{
+		ID: id, Email: email, CodeHash: codeHash, ExpiresAt: expiresAt,
+	})
+}
+
+// GetActiveLoginChallenge returns the newest unconsumed, unexpired challenge for
+// an email. pgx.ErrNoRows if none.
+func (s *Store) GetActiveLoginChallenge(ctx context.Context, email string) (LoginChallenge, error) {
+	return s.q.GetActiveLoginChallenge(ctx, email)
+}
+
+// IncrementLoginChallengeAttempts bumps the failed-attempt counter.
+func (s *Store) IncrementLoginChallengeAttempts(ctx context.Context, id string) error {
+	return s.q.IncrementLoginChallengeAttempts(ctx, id)
+}
+
+// ConsumeLoginChallenge marks a challenge used (single-use).
+func (s *Store) ConsumeLoginChallenge(ctx context.Context, id string) error {
+	return s.q.ConsumeLoginChallenge(ctx, id)
+}
+
 // --- sessions ----------------------------------------------------------------
 
 // NewSession describes a session to create. For kind="direct", ClassID must be

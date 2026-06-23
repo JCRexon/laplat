@@ -20,6 +20,7 @@ import (
 
 	"github.com/jcrexon/laplat/internal/auth"
 	"github.com/jcrexon/laplat/internal/config"
+	"github.com/jcrexon/laplat/internal/emailsend"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -77,6 +78,21 @@ func run(log *slog.Logger) error {
 		handler.RegisterOIDC(fed)
 		log.Info("oidc federated login enabled",
 			"google", cfg.OIDC.Google != nil, "apple", cfg.OIDC.Apple != nil)
+	}
+	if cfg.SMTP != nil {
+		sender, err := emailsend.NewSMTPSender(emailsend.SMTPConfig{
+			Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, From: cfg.SMTP.From,
+			Username: cfg.SMTP.Username, Password: cfg.SMTP.Password,
+		})
+		if err != nil {
+			return err
+		}
+		el, err := auth.NewEmailLogin(st, svc, sender)
+		if err != nil {
+			return err
+		}
+		handler.RegisterEmailLogin(el)
+		log.Info("email-otp login enabled", "from", cfg.SMTP.From)
 	}
 
 	srv := &http.Server{
