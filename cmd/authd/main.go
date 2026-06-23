@@ -23,6 +23,8 @@ import (
 	"github.com/jcrexon/laplat/internal/emailsend"
 	"github.com/jcrexon/laplat/internal/httpx"
 	"github.com/jcrexon/laplat/internal/identity"
+	"github.com/jcrexon/laplat/internal/livekit"
+	"github.com/jcrexon/laplat/internal/session"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -121,10 +123,30 @@ func run(log *slog.Logger) error {
 		log.Info("phone-otp login enabled", "provider", cfg.SMS.Provider)
 	}
 
+	// Compose the API: auth at "/", plus live sessions when LiveKit is configured.
+	var api http.Handler = handler
+	if cfg.LiveKit != nil {
+		granter, err := livekit.NewGranter(cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, 10*time.Minute)
+		if err != nil {
+			return err
+		}
+		sessionSvc, err := session.NewService(st, granter, cfg.LiveKit.URL)
+		if err != nil {
+			return err
+		}
+		sessionHandler := session.NewHandler(sessionSvc, validator)
+		mux := http.NewServeMux()
+		mux.Handle("/v1/sessions", sessionHandler)  // exact (create)
+		mux.Handle("/v1/sessions/", sessionHandler) // subtree (join/start/end/leave)
+		mux.Handle("/", handler)
+		api = mux
+		log.Info("live sessions enabled", "url", cfg.LiveKit.URL)
+	}
+
 	// Rate-limit the API per client IP, but NOT the health probes (k8s must
 	// always reach them). Then wrap everything in request-id/logging/recovery.
 	limiter := httpx.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
-	limitedAPI := limiter.Limit(handler)
+	limitedAPI := limiter.Limit(api)
 	root := httpx.Chain(rootHandler(limitedAPI, pool),
 		httpx.RequestID,      // outermost: id available to logging + responses
 		httpx.AccessLog(log), // record every response (incl. 429/500)
