@@ -64,6 +64,8 @@ type Querier interface {
 	RevokeIdentityVerification(ctx context.Context, userID string) error
 	// Theft response: revoke every live token in the rotation chain at once.
 	RevokeRefreshFamily(ctx context.Context, familyID string) error
+	// Marks a verification as in-flight when an eKYC session is started.
+	SetIdentityVerificationPending(ctx context.Context, userID string) error
 	SoftDeleteUser(ctx context.Context, id string) error
 	StartSession(ctx context.Context, id string) error
 	SuspendUser(ctx context.Context, id string) error

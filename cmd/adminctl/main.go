@@ -24,6 +24,7 @@ import (
 	"github.com/jcrexon/laplat/internal/admin"
 	"github.com/jcrexon/laplat/internal/auth"
 	"github.com/jcrexon/laplat/internal/config"
+	"github.com/jcrexon/laplat/internal/identity"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -58,11 +59,42 @@ func run(args []string) error {
 	switch args[0] {
 	case "bootstrap":
 		return runBootstrap(ctx, st, args[1:])
+	case "verify":
+		return runVerify(ctx, st, args[1:])
 	case "mint":
 		return runMint(ctx, st, cfg, args[1:])
 	default:
-		return fmt.Errorf("unknown command %q (want bootstrap|mint)", args[0])
+		return fmt.Errorf("unknown command %q (want bootstrap|verify|mint)", args[0])
 	}
+}
+
+// runVerify is the manual (operator) eKYC approval path: it records a
+// verified-adult result through the identity service's manual provider and
+// activates the account. Use for the operator-review stopgap before a real
+// eKYC vendor is wired in.
+func runVerify(ctx context.Context, st *store.Store, args []string) error {
+	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	userID := fs.String("user-id", "", "user id to mark as a verified adult")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *userID == "" {
+		return errors.New("verify: -user-id is required")
+	}
+	svc, err := identity.NewService(st, map[string]identity.Verifier{"default": identity.ManualVerifier{}})
+	if err != nil {
+		return err
+	}
+	if err := svc.Apply(ctx, identity.Result{
+		UserID:      *userID,
+		ProviderRef: "operator-manual",
+		Approved:    true,
+		IsAdult:     true,
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("verified (adult) and activated: %s\n", *userID)
+	return nil
 }
 
 func runBootstrap(ctx context.Context, st *store.Store, args []string) error {

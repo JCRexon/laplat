@@ -65,6 +65,16 @@ func (q *Queries) RevokeIdentityVerification(ctx context.Context, userID string)
 	return err
 }
 
+const setIdentityVerificationPending = `-- name: SetIdentityVerificationPending :exec
+UPDATE identity_vault SET verification_status = 'pending' WHERE user_id = $1
+`
+
+// Marks a verification as in-flight when an eKYC session is started.
+func (q *Queries) SetIdentityVerificationPending(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, setIdentityVerificationPending, userID)
+	return err
+}
+
 const verifyAdultIdentity = `-- name: VerifyAdultIdentity :exec
 UPDATE identity_vault
 SET verification_status = 'verified',

@@ -88,6 +88,11 @@ func (s *Store) CreateIdentityRecord(ctx context.Context, userID string) error {
 	return s.q.CreateIdentityRecord(ctx, userID)
 }
 
+// SetIdentityVerificationPending marks an eKYC session as in-flight.
+func (s *Store) SetIdentityVerificationPending(ctx context.Context, userID string) error {
+	return s.q.SetIdentityVerificationPending(ctx, userID)
+}
+
 // VerifyAdultIdentity records a successful eKYC: a verified adult, retained
 // until retainUntil (Decree 147). This is what unlocks activation.
 func (s *Store) VerifyAdultIdentity(ctx context.Context, userID, providerRef string, retainUntil time.Time) error {
