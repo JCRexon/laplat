@@ -32,6 +32,13 @@ const (
 	EnvAppleTeamID        = "LAPLAT_OIDC_APPLE_TEAM_ID"
 	EnvAppleKeyID         = "LAPLAT_OIDC_APPLE_KEY_ID"
 	EnvApplePrivateKeyB64 = "LAPLAT_OIDC_APPLE_PRIVATE_KEY" // base64 of the .p8 PEM
+
+	// Email-OTP login (optional). Enabled when host/port/from are all present.
+	EnvSMTPHost     = "LAPLAT_SMTP_HOST"
+	EnvSMTPPort     = "LAPLAT_SMTP_PORT"
+	EnvSMTPFrom     = "LAPLAT_SMTP_FROM"
+	EnvSMTPUsername = "LAPLAT_SMTP_USERNAME"
+	EnvSMTPPassword = "LAPLAT_SMTP_PASSWORD"
 )
 
 // Defaults.
@@ -51,6 +58,16 @@ type Config struct {
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
 	OIDC       OIDCConfig
+	SMTP       *SMTPConfig // nil unless email-OTP login is configured
+}
+
+// SMTPConfig is the (optional) email-OTP transport configuration.
+type SMTPConfig struct {
+	Host     string
+	Port     string
+	From     string
+	Username string
+	Password string
 }
 
 // OIDCConfig is the (optional) federated-login configuration. Google and/or
@@ -123,7 +140,32 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.OIDC, err = parseOIDC(getenv); err != nil {
 		return Config{}, err
 	}
+	if cfg.SMTP, err = parseSMTP(getenv); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// parseSMTP reads the optional email-OTP transport config. It is enabled only
+// when host, port, and from are all present; a partial set is a hard error.
+// Username/password are optional (some relays authenticate by IP).
+func parseSMTP(getenv func(string) string) (*SMTPConfig, error) {
+	host := strings.TrimSpace(getenv(EnvSMTPHost))
+	port := strings.TrimSpace(getenv(EnvSMTPPort))
+	from := strings.TrimSpace(getenv(EnvSMTPFrom))
+	if host == "" && port == "" && from == "" {
+		return nil, nil // email login disabled
+	}
+	if host == "" || port == "" || from == "" {
+		return nil, fmt.Errorf("config: email login needs %s, %s and %s", EnvSMTPHost, EnvSMTPPort, EnvSMTPFrom)
+	}
+	return &SMTPConfig{
+		Host:     host,
+		Port:     port,
+		From:     from,
+		Username: strings.TrimSpace(getenv(EnvSMTPUsername)),
+		Password: getenv(EnvSMTPPassword),
+	}, nil
 }
 
 // parseOIDC reads the optional federated-login config. A provider is only
