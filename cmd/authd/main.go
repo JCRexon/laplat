@@ -108,6 +108,18 @@ func run(log *slog.Logger) error {
 		handler.RegisterEmailLogin(el)
 		log.Info("email-otp login enabled", "from", cfg.SMTP.From)
 	}
+	if cfg.SMS != nil {
+		sender, err := buildSMSSender(cfg.SMS)
+		if err != nil {
+			return err
+		}
+		pl, err := auth.NewPhoneLogin(st, svc, sender)
+		if err != nil {
+			return err
+		}
+		handler.RegisterPhoneLogin(pl)
+		log.Info("phone-otp login enabled", "provider", cfg.SMS.Provider)
+	}
 
 	// Rate-limit the API per client IP, but NOT the health probes (k8s must
 	// always reach them). Then wrap everything in request-id/logging/recovery.

@@ -102,6 +102,70 @@ func TestLoad_SMTPRejectsPartial(t *testing.T) {
 	}
 }
 
+func TestLoad_SMSDisabledByDefault(t *testing.T) {
+	cfg, err := Load(getenvFrom(baseEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SMS != nil {
+		t.Fatal("SMS should be nil with no provider env")
+	}
+}
+
+func TestLoad_SMSProviders(t *testing.T) {
+	t.Run("twilio", func(t *testing.T) {
+		env := baseEnv()
+		env[EnvSMSProvider] = "twilio"
+		env[EnvSMSFrom] = "+15550000000"
+		env[EnvSMSTwilioSID] = "AC1"
+		env[EnvSMSTwilioAuthToken] = "tok"
+		cfg, err := Load(getenvFrom(env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.SMS == nil || cfg.SMS.Provider != "twilio" || cfg.SMS.TwilioSID != "AC1" {
+			t.Fatalf("twilio not parsed: %+v", cfg.SMS)
+		}
+	})
+	t.Run("generic", func(t *testing.T) {
+		env := baseEnv()
+		env[EnvSMSProvider] = "generic"
+		env[EnvSMSGatewayURL] = "https://sms.example/send"
+		cfg, err := Load(getenvFrom(env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.SMS == nil || cfg.SMS.GatewayURL == "" {
+			t.Fatalf("generic not parsed: %+v", cfg.SMS)
+		}
+	})
+}
+
+func TestLoad_SMSRejectsBadConfig(t *testing.T) {
+	cases := map[string]func(map[string]string){
+		"unknown provider": func(e map[string]string) { e[EnvSMSProvider] = "nope" },
+		"twilio missing creds": func(e map[string]string) {
+			e[EnvSMSProvider] = "twilio"
+			e[EnvSMSFrom] = "+1555" // sid/token missing
+		},
+		"vonage missing from": func(e map[string]string) {
+			e[EnvSMSProvider] = "vonage"
+			e[EnvSMSVonageKey] = "k"
+			e[EnvSMSVonageSecret] = "s" // From missing
+		},
+		"generic missing url": func(e map[string]string) { e[EnvSMSProvider] = "generic" },
+	}
+	for name, mut := range cases {
+		t.Run(name, func(t *testing.T) {
+			env := baseEnv()
+			mut(env)
+			if _, err := Load(getenvFrom(env)); err == nil {
+				t.Fatal("expected error, got nil")
+			}
+		})
+	}
+}
+
 func TestLoad_OIDCRejectsPartialAndMissingRedirect(t *testing.T) {
 	cases := []struct {
 		name string

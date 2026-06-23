@@ -29,6 +29,7 @@ type SessionRepo interface {
 	GetUser(ctx context.Context, id string) (store.User, error)
 	GetIdentity(ctx context.Context, userID string) (store.Identity, error)
 	HasAdultAttestation(ctx context.Context, userID string) (bool, error)
+	HasVerifiedPhone(ctx context.Context, userID string) (bool, error)
 	CurrentTokenVersion(ctx context.Context, userID string) (int, error)
 	IssueRefreshToken(ctx context.Context, userID string, tok store.NewRefreshToken) error
 	RotateRefreshToken(ctx context.Context, presentedHash []byte, next store.NewRefreshToken) (store.Rotation, error)
@@ -182,8 +183,12 @@ func (s *Service) mint(ctx context.Context, user store.User, identity store.Iden
 	if err != nil {
 		return Session{}, err
 	}
+	phoneVerified, err := s.repo.HasVerifiedPhone(ctx, user.ID)
+	if err != nil {
+		return Session{}, err
+	}
 	access, claims, err := s.minter.MintAccess(user.ID, tv,
-		identityState(identity, declaredAdult), capabilities(user))
+		identityState(identity, declaredAdult, phoneVerified), capabilities(user))
 	if err != nil {
 		return Session{}, err
 	}
@@ -196,12 +201,17 @@ func (s *Service) mint(ctx context.Context, user store.User, identity store.Iden
 }
 
 // identityState maps DB state to the assurance tier in the claim, ordered
-// verified > declared > pending > none. eKYC ("verified") outranks a self-
-// attestation ("declared"); a declared adult keeps that tier even while an eKYC
-// check is pending (so a pending check is never a downgrade from declared).
-func identityState(id store.Identity, declaredAdult bool) contracts.IdentityVerificationState {
+// verified > phone_verified > declared > pending > none. eKYC ("verified")
+// outranks everything; "phone_verified" requires BOTH a verified phone and the
+// 18+ self-attestation (a phone binding alone proves identity-control, not
+// adulthood — so it does not by itself lift the tier above none/declared). A
+// user keeps their tier while an eKYC check is pending (never a downgrade).
+func identityState(id store.Identity, declaredAdult, phoneVerified bool) contracts.IdentityVerificationState {
 	if id.VerificationStatus == string(contracts.IdentityVerified) {
 		return contracts.IdentityVerified
+	}
+	if phoneVerified && declaredAdult {
+		return contracts.IdentityPhoneVerified
 	}
 	if declaredAdult {
 		return contracts.IdentityDeclared

@@ -46,6 +46,23 @@ type LoginChallenge struct {
 	CreatedAt  time.Time
 }
 
+type PhoneChallenge struct {
+	ID         string
+	Phone      string
+	CodeHash   []byte
+	Attempts   int32
+	ExpiresAt  time.Time
+	ConsumedAt *time.Time
+	CreatedAt  time.Time
+}
+
+type PhoneIdentity struct {
+	Phone     string
+	UserID    string
+	CreatedAt time.Time
+	LastLogin *time.Time
+}
+
 type RefreshToken struct {
 	ID           string
 	UserID       string

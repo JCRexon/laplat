@@ -44,6 +44,17 @@ const (
 	EnvSMTPFrom     = "LAPLAT_SMTP_FROM"
 	EnvSMTPUsername = "LAPLAT_SMTP_USERNAME"
 	EnvSMTPPassword = "LAPLAT_SMTP_PASSWORD"
+
+	// Phone-OTP login + phone_verified tier (optional). Enabled when a provider
+	// is selected via LAPLAT_SMS_PROVIDER (generic|twilio|vonage).
+	EnvSMSProvider        = "LAPLAT_SMS_PROVIDER"
+	EnvSMSFrom            = "LAPLAT_SMS_FROM"
+	EnvSMSGatewayURL      = "LAPLAT_SMS_GATEWAY_URL"   // generic
+	EnvSMSGatewayToken    = "LAPLAT_SMS_GATEWAY_TOKEN" // generic (optional bearer)
+	EnvSMSTwilioSID       = "LAPLAT_SMS_TWILIO_ACCOUNT_SID"
+	EnvSMSTwilioAuthToken = "LAPLAT_SMS_TWILIO_AUTH_TOKEN"
+	EnvSMSVonageKey       = "LAPLAT_SMS_VONAGE_API_KEY"
+	EnvSMSVonageSecret    = "LAPLAT_SMS_VONAGE_API_SECRET"
 )
 
 // Defaults.
@@ -68,6 +79,7 @@ type Config struct {
 	RateLimitBurst int
 	OIDC           OIDCConfig
 	SMTP           *SMTPConfig // nil unless email-OTP login is configured
+	SMS            *SMSConfig  // nil unless phone-OTP login is configured
 }
 
 // SMTPConfig is the (optional) email-OTP transport configuration.
@@ -77,6 +89,25 @@ type SMTPConfig struct {
 	From     string
 	Username string
 	Password string
+}
+
+// SMSConfig is the (optional) phone-OTP gateway configuration. Provider selects
+// the transport; the relevant fields are validated for that provider.
+type SMSConfig struct {
+	Provider string // "generic" | "twilio" | "vonage"
+	From     string
+
+	// generic
+	GatewayURL   string
+	GatewayToken string
+
+	// twilio
+	TwilioSID       string
+	TwilioAuthToken string
+
+	// vonage
+	VonageKey    string
+	VonageSecret string
 }
 
 // OIDCConfig is the (optional) federated-login configuration. Google and/or
@@ -159,7 +190,43 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.SMTP, err = parseSMTP(getenv); err != nil {
 		return Config{}, err
 	}
+	if cfg.SMS, err = parseSMS(getenv); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// parseSMS reads the optional phone-OTP config. Enabled when LAPLAT_SMS_PROVIDER
+// is set; the selected provider's required fields are then validated.
+func parseSMS(getenv func(string) string) (*SMSConfig, error) {
+	provider := strings.TrimSpace(getenv(EnvSMSProvider))
+	if provider == "" {
+		return nil, nil // phone login disabled
+	}
+	sc := &SMSConfig{Provider: provider, From: strings.TrimSpace(getenv(EnvSMSFrom))}
+	switch provider {
+	case "generic":
+		sc.GatewayURL = strings.TrimSpace(getenv(EnvSMSGatewayURL))
+		sc.GatewayToken = getenv(EnvSMSGatewayToken)
+		if sc.GatewayURL == "" {
+			return nil, fmt.Errorf("config: sms provider generic needs %s", EnvSMSGatewayURL)
+		}
+	case "twilio":
+		sc.TwilioSID = strings.TrimSpace(getenv(EnvSMSTwilioSID))
+		sc.TwilioAuthToken = strings.TrimSpace(getenv(EnvSMSTwilioAuthToken))
+		if sc.TwilioSID == "" || sc.TwilioAuthToken == "" || sc.From == "" {
+			return nil, fmt.Errorf("config: sms provider twilio needs %s, %s and %s", EnvSMSTwilioSID, EnvSMSTwilioAuthToken, EnvSMSFrom)
+		}
+	case "vonage":
+		sc.VonageKey = strings.TrimSpace(getenv(EnvSMSVonageKey))
+		sc.VonageSecret = strings.TrimSpace(getenv(EnvSMSVonageSecret))
+		if sc.VonageKey == "" || sc.VonageSecret == "" || sc.From == "" {
+			return nil, fmt.Errorf("config: sms provider vonage needs %s, %s and %s", EnvSMSVonageKey, EnvSMSVonageSecret, EnvSMSFrom)
+		}
+	default:
+		return nil, fmt.Errorf("config: unknown %s %q (want generic|twilio|vonage)", EnvSMSProvider, provider)
+	}
+	return sc, nil
 }
 
 // parseSMTP reads the optional email-OTP transport config. It is enabled only
