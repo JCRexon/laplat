@@ -40,3 +40,9 @@ func (s *Service) UpdateProfile(ctx context.Context, userID, handle, displayName
 func (s *Service) CloseAccount(ctx context.Context, userID string) error {
 	return s.repo.CloseAccount(ctx, userID)
 }
+
+// LogoutEverywhere revokes all of a user's sessions (every refresh token and all
+// outstanding access tokens), without deleting the account.
+func (s *Service) LogoutEverywhere(ctx context.Context, userID string) error {
+	return s.repo.RevokeAllSessions(ctx, userID)
+}

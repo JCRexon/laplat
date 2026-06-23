@@ -96,6 +96,8 @@ type Querier interface {
 	RemoveParticipant(ctx context.Context, arg RemoveParticipantParams) error
 	// Single-token revocation: denylist a jti until its natural expiry. Idempotent.
 	RevokeAccessToken(ctx context.Context, arg RevokeAccessTokenParams) error
+	// Revoke every live refresh token for a user (used by "log out everywhere").
+	RevokeAllRefreshTokens(ctx context.Context, userID string) error
 	// Reverses verification (e.g. eKYC reversal, fraud finding). Defence in depth:
 	// a trigger demotes any active user whose identity is revoked this way.
 	RevokeIdentityVerification(ctx context.Context, userID string) error
