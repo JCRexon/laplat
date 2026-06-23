@@ -86,13 +86,15 @@ type Session struct {
 // IssueSession mints the first session for an already-authenticated user. The
 // first-factor proof (eKYC / OTP / IdP) is the caller's responsibility and is
 // out of scope here — this is the issuance primitive that flow invokes once it
-// has established who the user is. The account must be active.
+// has established who the user is. The account must be in good standing
+// (pending or active); a pending account can hold a session to complete
+// onboarding/eKYC, but its token carries no capabilities and idv "none".
 func (s *Service) IssueSession(ctx context.Context, userID string) (Session, error) {
 	user, err := s.repo.GetUser(ctx, userID)
 	if err != nil {
 		return Session{}, ErrUnauthenticated
 	}
-	if user.Status != "active" {
+	if !canHoldSession(user.Status) {
 		return Session{}, ErrAccountNotActive
 	}
 	identity, err := s.repo.GetIdentity(ctx, userID)
@@ -136,7 +138,7 @@ func (s *Service) Refresh(ctx context.Context, presentedRefresh string) (Session
 	if err != nil {
 		return Session{}, ErrUnauthenticated
 	}
-	if user.Status != "active" {
+	if !canHoldSession(user.Status) {
 		return Session{}, ErrAccountNotActive
 	}
 	identity, err := s.repo.GetIdentity(ctx, rot.UserID)
@@ -161,6 +163,12 @@ func (s *Service) Logout(ctx context.Context, presentedRefresh, accessJTI string
 		}
 	}
 	return nil
+}
+
+// canHoldSession reports whether an account in this status may hold a session.
+// Pending (onboarding, pre-eKYC) and active may; suspended and deleted may not.
+func canHoldSession(status string) bool {
+	return status == "pending" || status == "active"
 }
 
 // mint derives claims from current DB state and signs the access token.

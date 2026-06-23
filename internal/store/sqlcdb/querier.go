@@ -36,6 +36,8 @@ type Querier interface {
 	// Resolves the rotation family a presented token belongs to (any state), so a
 	// logout can revoke the whole chain.
 	GetFamilyByHash(ctx context.Context, tokenHash []byte) (string, error)
+	// Federated (OIDC) login identities. Login factor only; never adult eKYC.
+	GetFederatedIdentity(ctx context.Context, arg GetFederatedIdentityParams) (FederatedIdentity, error)
 	GetIdentity(ctx context.Context, userID string) (IdentityVault, error)
 	// Locks the row for the duration of the rotation transaction so a token
 	// presented concurrently cannot rotate twice (serialises reuse detection).
@@ -51,6 +53,7 @@ type Querier interface {
 	// Refresh-token rotation chain (A-5). Tokens are opaque and stored only as a
 	// hash; rotation is single-use with reuse detection at the family level.
 	IssueRefreshToken(ctx context.Context, arg IssueRefreshTokenParams) error
+	LinkFederatedIdentity(ctx context.Context, arg LinkFederatedIdentityParams) error
 	ListActiveParticipants(ctx context.Context, sessionID string) ([]SessionParticipant, error)
 	MarkRefreshTokenReplaced(ctx context.Context, arg MarkRefreshTokenReplacedParams) error
 	// Grants the platform-moderator capability (backs caps:platform_moderator).
@@ -69,6 +72,7 @@ type Querier interface {
 	SoftDeleteUser(ctx context.Context, id string) error
 	StartSession(ctx context.Context, id string) error
 	SuspendUser(ctx context.Context, id string) error
+	TouchFederatedLogin(ctx context.Context, arg TouchFederatedLoginParams) error
 	UserExists(ctx context.Context, id string) (bool, error)
 	// Records a successful eKYC: verified adult. This is the state the activation
 	// trigger requires before a user may go active.

@@ -26,6 +26,7 @@ type claimsKey struct{}
 type Handler struct {
 	svc       *Service
 	validator *token.Validator
+	oidc      *Federation // nil unless RegisterOIDC was called
 	mux       *http.ServeMux
 }
 

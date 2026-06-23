@@ -114,6 +114,28 @@ func (s *Store) GetIdentity(ctx context.Context, userID string) (Identity, error
 	return s.q.GetIdentity(ctx, userID)
 }
 
+// --- federated (OIDC) identities ---------------------------------------------
+
+// FederatedIdentity is the link between an external (provider, subject) and a
+// local user. Login factor only — never adult verification.
+type FederatedIdentity = sqlcdb.FederatedIdentity
+
+// GetFederatedIdentity looks up the link for a provider+subject. Returns
+// pgx.ErrNoRows when absent.
+func (s *Store) GetFederatedIdentity(ctx context.Context, provider, subject string) (FederatedIdentity, error) {
+	return s.q.GetFederatedIdentity(ctx, sqlcdb.GetFederatedIdentityParams{Provider: provider, Subject: subject})
+}
+
+// LinkFederatedIdentity records a new (provider, subject) -> user link.
+func (s *Store) LinkFederatedIdentity(ctx context.Context, provider, subject, userID string) error {
+	return s.q.LinkFederatedIdentity(ctx, sqlcdb.LinkFederatedIdentityParams{Provider: provider, Subject: subject, UserID: userID})
+}
+
+// TouchFederatedLogin updates last_login for an existing link.
+func (s *Store) TouchFederatedLogin(ctx context.Context, provider, subject string) error {
+	return s.q.TouchFederatedLogin(ctx, sqlcdb.TouchFederatedLoginParams{Provider: provider, Subject: subject})
+}
+
 // --- sessions ----------------------------------------------------------------
 
 // NewSession describes a session to create. For kind="direct", ClassID must be
