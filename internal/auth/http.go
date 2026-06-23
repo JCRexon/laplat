@@ -43,6 +43,7 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	// Protected: require a (still-valid) access token to log out / introspect.
 	h.mux.Handle("POST /v1/token/logout", h.requireAuth(http.HandlerFunc(h.handleLogout)))
 	h.mux.Handle("GET /v1/me", h.requireAuth(http.HandlerFunc(h.handleMe)))
+	h.mux.Handle("PATCH /v1/me", h.requireAuth(http.HandlerFunc(h.handleUpdateProfile)))
 	return h
 }
 
@@ -141,6 +142,33 @@ func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
 		IdentityVerification: string(claims.IdentityVerification),
 		Capabilities:         caps,
 	})
+}
+
+type updateProfileBody struct {
+	Handle      string `json:"handle"`
+	DisplayName string `json:"displayName"`
+	Bio         string `json:"bio"`
+}
+
+// handleUpdateProfile sets the caller's editable profile fields (handle,
+// display name, bio). A malformed field is 400; a taken handle is 409.
+func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
+	claims, _ := ClaimsFrom(r.Context())
+	var req updateProfileBody
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	err := h.svc.UpdateProfile(r.Context(), claims.Subject, req.Handle, req.DisplayName, req.Bio)
+	switch {
+	case errors.Is(err, ErrInvalidProfile):
+		writeError(w, http.StatusBadRequest, "invalid profile")
+	case errors.Is(err, ErrHandleTaken):
+		writeError(w, http.StatusConflict, "handle already taken")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "could not update profile")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // --- helpers -----------------------------------------------------------------

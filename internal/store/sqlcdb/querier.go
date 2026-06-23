@@ -107,6 +107,9 @@ type Querier interface {
 	TouchFederatedLogin(ctx context.Context, arg TouchFederatedLoginParams) error
 	TouchPhoneLogin(ctx context.Context, phone string) error
 	UpdateClassStatus(ctx context.Context, arg UpdateClassStatusParams) error
+	// Sets the user-editable profile fields. handle uniqueness is enforced by the
+	// lower(handle) unique index (a conflict surfaces as a unique violation).
+	UpdateProfile(ctx context.Context, arg UpdateProfileParams) error
 	UserExists(ctx context.Context, id string) (bool, error)
 	// Records a successful eKYC: verified adult. This is the state the activation
 	// trigger requires before a user may go active.

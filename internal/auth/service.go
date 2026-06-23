@@ -27,6 +27,7 @@ var (
 // it; tests can substitute a fake.
 type SessionRepo interface {
 	GetUser(ctx context.Context, id string) (store.User, error)
+	UpdateProfile(ctx context.Context, id, handle, displayName, bio string) error
 	GetIdentity(ctx context.Context, userID string) (store.Identity, error)
 	HasAdultAttestation(ctx context.Context, userID string) (bool, error)
 	HasVerifiedPhone(ctx context.Context, userID string) (bool, error)
