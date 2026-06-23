@@ -44,6 +44,7 @@ type Granter interface {
 type Repo interface {
 	CreateSession(ctx context.Context, s store.NewSession) (store.Session, error)
 	GetSession(ctx context.Context, id string) (store.Session, error)
+	GetClass(ctx context.Context, id string) (store.Class, error)
 	StartSession(ctx context.Context, id string) error
 	EndSession(ctx context.Context, id string) error
 	AddParticipant(ctx context.Context, sessionID, userID, role string) error
@@ -89,6 +90,15 @@ func (s *Service) CreateSession(ctx context.Context, claims *contracts.AccessTok
 		}
 		if classID == nil || *classID == "" {
 			return store.Session{}, ErrClassRequired
+		}
+		// The class must exist and be owned by the caller — a class session is an
+		// instance of the instructor's own class.
+		c, err := s.repo.GetClass(ctx, *classID)
+		if err != nil {
+			return store.Session{}, ErrClassRequired
+		}
+		if c.InstructorID != claims.Subject {
+			return store.Session{}, ErrForbidden
 		}
 	} else {
 		classID = nil // a direct session never carries a class id

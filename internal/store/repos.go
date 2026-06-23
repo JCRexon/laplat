@@ -254,6 +254,41 @@ func (s *Store) ConsumePhoneChallenge(ctx context.Context, id string) error {
 	return s.q.ConsumePhoneChallenge(ctx, id)
 }
 
+// --- classes -----------------------------------------------------------------
+
+// Class is an instructor's course definition.
+type Class = sqlcdb.Class
+
+// NewClass is the input to class creation.
+type NewClass struct {
+	ID           string
+	InstructorID string
+	Title        string
+	Description  string
+}
+
+// CreateClass inserts a draft class and returns the stored row.
+func (s *Store) CreateClass(ctx context.Context, c NewClass) (Class, error) {
+	return s.q.CreateClass(ctx, sqlcdb.CreateClassParams{
+		ID: c.ID, InstructorID: c.InstructorID, Title: c.Title, Description: c.Description,
+	})
+}
+
+// GetClass fetches a class by id. pgx.ErrNoRows if absent.
+func (s *Store) GetClass(ctx context.Context, id string) (Class, error) {
+	return s.q.GetClass(ctx, id)
+}
+
+// ListClassesByInstructor returns an instructor's classes, newest first.
+func (s *Store) ListClassesByInstructor(ctx context.Context, instructorID string) ([]Class, error) {
+	return s.q.ListClassesByInstructor(ctx, instructorID)
+}
+
+// UpdateClassStatus sets a class's lifecycle status (draft/published/archived).
+func (s *Store) UpdateClassStatus(ctx context.Context, id, status string) error {
+	return s.q.UpdateClassStatus(ctx, sqlcdb.UpdateClassStatusParams{ID: id, Status: status})
+}
+
 // --- sessions ----------------------------------------------------------------
 
 // NewSession describes a session to create. For kind="direct", ClassID must be

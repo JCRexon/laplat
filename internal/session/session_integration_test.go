@@ -47,6 +47,15 @@ func mkUser(t *testing.T, st *store.Store, ctx context.Context, id string, idv c
 	return &contracts.AccessTokenClaims{Subject: id, IdentityVerification: idv, Capabilities: caps}
 }
 
+// mkClass inserts a class owned by instructorID and returns its id.
+func mkClass(t *testing.T, st *store.Store, ctx context.Context, id, instructorID string) string {
+	t.Helper()
+	if _, err := st.CreateClass(ctx, store.NewClass{ID: id, InstructorID: instructorID, Title: "C"}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func hasCap(caps []contracts.Capability, want contracts.Capability) bool {
 	for _, c := range caps {
 		if c == want {
@@ -77,9 +86,9 @@ func canPublish(t *testing.T, tok string) bool {
 // subscribe-only participant.
 func TestSession_ClassHostAndParticipant(t *testing.T) {
 	svc, st, ctx := newSvc(t)
-	classID := "class-1"
 	host := mkUser(t, st, ctx, "host1", contracts.IdentityPhoneVerified, contracts.CapCanInstruct)
 	learner := mkUser(t, st, ctx, "learner1", contracts.IdentityPhoneVerified)
+	classID := mkClass(t, st, ctx, "class-1", "host1")
 
 	sess, err := svc.CreateSession(ctx, host, "class", &classID)
 	if err != nil {
@@ -113,9 +122,9 @@ func TestSession_ClassHostAndParticipant(t *testing.T) {
 // Tier gating: a declared-only user cannot create a class/direct or join.
 func TestSession_TierGating(t *testing.T) {
 	svc, st, ctx := newSvc(t)
-	classID := "class-2"
 	instructor := mkUser(t, st, ctx, "host2", contracts.IdentityPhoneVerified, contracts.CapCanInstruct)
 	declared := mkUser(t, st, ctx, "declared2", contracts.IdentityDeclared)
+	classID := mkClass(t, st, ctx, "class-2", "host2")
 
 	sess, _ := svc.CreateSession(ctx, instructor, "class", &classID)
 

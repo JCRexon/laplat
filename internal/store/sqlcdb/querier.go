@@ -23,6 +23,8 @@ type Querier interface {
 	BumpTokenVersion(ctx context.Context, id string) (int32, error)
 	ConsumeLoginChallenge(ctx context.Context, id string) error
 	ConsumePhoneChallenge(ctx context.Context, id string) error
+	// Classes: instructor course definitions.
+	CreateClass(ctx context.Context, arg CreateClassParams) (Class, error)
 	// identity_vault: the only place identity PII lives (encrypted at rest). These
 	// queries write verification *state* and opaque references; raw PII columns
 	// (full_name_enc, dob_enc, ...) are written by the eKYC ingestion path, not
@@ -44,6 +46,7 @@ type Querier interface {
 	// The newest unconsumed, unexpired challenge for an email.
 	GetActiveLoginChallenge(ctx context.Context, email string) (LoginChallenge, error)
 	GetActivePhoneChallenge(ctx context.Context, phone string) (PhoneChallenge, error)
+	GetClass(ctx context.Context, id string) (Class, error)
 	// First-party email-OTP login. Login factor only; never adult eKYC.
 	GetEmailIdentity(ctx context.Context, email string) (EmailIdentity, error)
 	// Resolves the rotation family a presented token belongs to (any state), so a
@@ -78,6 +81,7 @@ type Querier interface {
 	LinkFederatedIdentity(ctx context.Context, arg LinkFederatedIdentityParams) error
 	LinkPhoneIdentity(ctx context.Context, arg LinkPhoneIdentityParams) error
 	ListActiveParticipants(ctx context.Context, sessionID string) ([]SessionParticipant, error)
+	ListClassesByInstructor(ctx context.Context, instructorID string) ([]Class, error)
 	MarkRefreshTokenReplaced(ctx context.Context, arg MarkRefreshTokenReplacedParams) error
 	// Grants the platform-moderator capability (backs caps:platform_moderator).
 	// Operator-only path (adminctl); never reachable from user-facing handlers.
@@ -98,6 +102,7 @@ type Querier interface {
 	TouchEmailLogin(ctx context.Context, email string) error
 	TouchFederatedLogin(ctx context.Context, arg TouchFederatedLoginParams) error
 	TouchPhoneLogin(ctx context.Context, phone string) error
+	UpdateClassStatus(ctx context.Context, arg UpdateClassStatusParams) error
 	UserExists(ctx context.Context, id string) (bool, error)
 	// Records a successful eKYC: verified adult. This is the state the activation
 	// trigger requires before a user may go active.
