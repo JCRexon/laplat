@@ -22,6 +22,16 @@ const (
 	EnvVerifyKeys = "LAPLAT_TOKEN_VERIFY_KEYS" // "kid:base64pub,kid2:base64pub"
 	EnvAccessTTL  = "LAPLAT_ACCESS_TTL"
 	EnvRefreshTTL = "LAPLAT_REFRESH_TTL"
+
+	// OIDC federated login (all optional; a provider is enabled only when its
+	// full set of variables is present).
+	EnvOIDCRedirectBase   = "LAPLAT_OIDC_REDIRECT_BASE" // e.g. https://laplat.example
+	EnvGoogleClientID     = "LAPLAT_OIDC_GOOGLE_CLIENT_ID"
+	EnvGoogleClientSecret = "LAPLAT_OIDC_GOOGLE_CLIENT_SECRET"
+	EnvAppleClientID      = "LAPLAT_OIDC_APPLE_CLIENT_ID"
+	EnvAppleTeamID        = "LAPLAT_OIDC_APPLE_TEAM_ID"
+	EnvAppleKeyID         = "LAPLAT_OIDC_APPLE_KEY_ID"
+	EnvApplePrivateKeyB64 = "LAPLAT_OIDC_APPLE_PRIVATE_KEY" // base64 of the .p8 PEM
 )
 
 // Defaults.
@@ -40,6 +50,34 @@ type Config struct {
 	VerifyKeys map[string]ed25519.PublicKey
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
+	OIDC       OIDCConfig
+}
+
+// OIDCConfig is the (optional) federated-login configuration. Google and/or
+// Apple are configured independently; RedirectBase is required once either is.
+// The well-known issuer/authorize/token/JWKS endpoints are not configurable —
+// they are pinned in the wiring layer.
+type OIDCConfig struct {
+	RedirectBase string      // base URL the providers redirect back to
+	Google       *GoogleOIDC // nil unless configured
+	Apple        *AppleOIDC  // nil unless configured
+}
+
+// Enabled reports whether any provider is configured.
+func (o OIDCConfig) Enabled() bool { return o.Google != nil || o.Apple != nil }
+
+// GoogleOIDC is the Google client credentials.
+type GoogleOIDC struct {
+	ClientID     string
+	ClientSecret string
+}
+
+// AppleOIDC is the Apple Sign-in credentials; PrivateKey is the decoded .p8 PEM.
+type AppleOIDC struct {
+	ClientID   string
+	TeamID     string
+	KeyID      string
+	PrivateKey []byte
 }
 
 // Load reads and validates configuration. getenv is typically os.Getenv. The
@@ -81,7 +119,49 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.RefreshTTL, err = parseDuration(getenv(EnvRefreshTTL), defaultRefreshTTL); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", EnvRefreshTTL, err)
 	}
+
+	if cfg.OIDC, err = parseOIDC(getenv); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// parseOIDC reads the optional federated-login config. A provider is only
+// enabled when its full credential set is present; a partial set is a hard
+// error (a half-configured provider would silently never work). RedirectBase is
+// required once any provider is enabled.
+func parseOIDC(getenv func(string) string) (OIDCConfig, error) {
+	var oc OIDCConfig
+	oc.RedirectBase = strings.TrimRight(strings.TrimSpace(getenv(EnvOIDCRedirectBase)), "/")
+
+	gID := strings.TrimSpace(getenv(EnvGoogleClientID))
+	gSecret := strings.TrimSpace(getenv(EnvGoogleClientSecret))
+	if gID != "" || gSecret != "" {
+		if gID == "" || gSecret == "" {
+			return OIDCConfig{}, fmt.Errorf("config: google oidc needs both %s and %s", EnvGoogleClientID, EnvGoogleClientSecret)
+		}
+		oc.Google = &GoogleOIDC{ClientID: gID, ClientSecret: gSecret}
+	}
+
+	aID := strings.TrimSpace(getenv(EnvAppleClientID))
+	aTeam := strings.TrimSpace(getenv(EnvAppleTeamID))
+	aKey := strings.TrimSpace(getenv(EnvAppleKeyID))
+	aPriv := strings.TrimSpace(getenv(EnvApplePrivateKeyB64))
+	if aID != "" || aTeam != "" || aKey != "" || aPriv != "" {
+		if aID == "" || aTeam == "" || aKey == "" || aPriv == "" {
+			return OIDCConfig{}, fmt.Errorf("config: apple oidc needs %s, %s, %s and %s", EnvAppleClientID, EnvAppleTeamID, EnvAppleKeyID, EnvApplePrivateKeyB64)
+		}
+		pem, err := base64.StdEncoding.DecodeString(aPriv)
+		if err != nil {
+			return OIDCConfig{}, fmt.Errorf("%s: not valid base64: %w", EnvApplePrivateKeyB64, err)
+		}
+		oc.Apple = &AppleOIDC{ClientID: aID, TeamID: aTeam, KeyID: aKey, PrivateKey: pem}
+	}
+
+	if oc.Enabled() && oc.RedirectBase == "" {
+		return OIDCConfig{}, fmt.Errorf("config: %s is required when an OIDC provider is configured", EnvOIDCRedirectBase)
+	}
+	return oc, nil
 }
 
 // parseSigningKey accepts a base64-encoded Ed25519 seed (32 bytes) or full

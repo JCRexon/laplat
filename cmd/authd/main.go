@@ -68,9 +68,20 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	handler := auth.NewHandler(svc, validator)
+	fed, err := buildFederation(cfg, st, svc)
+	if err != nil {
+		return err
+	}
+	if fed != nil {
+		handler.RegisterOIDC(fed)
+		log.Info("oidc federated login enabled",
+			"google", cfg.OIDC.Google != nil, "apple", cfg.OIDC.Apple != nil)
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           rootHandler(auth.NewHandler(svc, validator), pool),
+		Handler:           rootHandler(handler, pool),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
