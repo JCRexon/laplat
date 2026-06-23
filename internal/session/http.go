@@ -28,6 +28,7 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h := &Handler{svc: svc, validator: validator, mux: http.NewServeMux()}
 	h.mux.Handle("POST /v1/sessions", h.auth(h.create))
 	h.mux.Handle("GET /v1/sessions", h.auth(h.listForClass))
+	h.mux.Handle("GET /v1/sessions/{id}", h.auth(h.detail))
 	h.mux.Handle("POST /v1/sessions/{id}/join", h.auth(h.join))
 	h.mux.Handle("POST /v1/sessions/{id}/start", h.auth(h.start))
 	h.mux.Handle("POST /v1/sessions/{id}/end", h.auth(h.end))
@@ -121,6 +122,29 @@ func (h *Handler) join(w http.ResponseWriter, r *http.Request, claims *contracts
 		"token":     res.Token,
 		"wsUrl":     res.WSURL,
 	})
+}
+
+func (h *Handler) detail(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	sess, parts, err := h.svc.Detail(r.Context(), claims, r.PathValue("id"))
+	if err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	ps := make([]map[string]string, 0, len(parts))
+	for _, p := range parts {
+		ps = append(ps, map[string]string{"userId": p.UserID, "role": p.Role})
+	}
+	out := map[string]any{
+		"sessionId":    sess.ID,
+		"kind":         sess.Kind,
+		"status":       sess.Status,
+		"room":         sess.LivekitRoom,
+		"participants": ps,
+	}
+	if sess.ScheduledStart != nil {
+		out["scheduledStart"] = sess.ScheduledStart.UTC().Format(time.RFC3339)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) start(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {

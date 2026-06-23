@@ -215,6 +215,23 @@ func (s *Service) ListForClass(ctx context.Context, claims *contracts.AccessToke
 	return s.repo.ListSessionsByClass(ctx, classID)
 }
 
+// Detail returns a session and its currently-present participants for discovery
+// (e.g. seeing status/occupancy before joining). Requires the declared tier.
+func (s *Service) Detail(ctx context.Context, claims *contracts.AccessTokenClaims, sessionID string) (store.Session, []store.SessionParticipant, error) {
+	if !claims.MeetsAdultDeclaration() {
+		return store.Session{}, nil, ErrForbidden
+	}
+	sess, err := s.repo.GetSession(ctx, sessionID)
+	if err != nil {
+		return store.Session{}, nil, ErrNotFound
+	}
+	parts, err := s.repo.ListActiveParticipants(ctx, sessionID)
+	if err != nil {
+		return store.Session{}, nil, err
+	}
+	return sess, parts, nil
+}
+
 // Leave removes the caller from the session's active participants.
 func (s *Service) Leave(ctx context.Context, claims *contracts.AccessTokenClaims, sessionID string) error {
 	return s.repo.RemoveParticipant(ctx, sessionID, claims.Subject)
