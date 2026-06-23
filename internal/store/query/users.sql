@@ -21,6 +21,14 @@ FROM users WHERE lower(handle) = lower($1) AND deleted_at IS NULL;
 -- identity exists for the user.
 UPDATE users SET status = 'active' WHERE id = $1;
 
+-- name: UserExists :one
+SELECT EXISTS (SELECT 1 FROM users WHERE id = $1);
+
+-- name: PromoteToModerator :exec
+-- Grants the platform-moderator capability (backs caps:platform_moderator).
+-- Operator-only path (adminctl); never reachable from user-facing handlers.
+UPDATE users SET is_platform_moderator = true WHERE id = $1;
+
 -- name: SuspendUser :exec
 UPDATE users SET status = 'suspended' WHERE id = $1;
 

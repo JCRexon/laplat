@@ -8,6 +8,14 @@ import (
 	"time"
 )
 
+type FederatedIdentity struct {
+	Provider  string
+	Subject   string
+	UserID    string
+	CreatedAt time.Time
+	LastLogin *time.Time
+}
+
 type IdentityVault struct {
 	UserID             string
 	VerificationStatus string

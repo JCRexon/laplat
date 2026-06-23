@@ -48,6 +48,16 @@ func (s *Store) GetUser(ctx context.Context, id string) (User, error) {
 	return s.q.GetUser(ctx, id)
 }
 
+// UserExists reports whether a user id is present.
+func (s *Store) UserExists(ctx context.Context, id string) (bool, error) {
+	return s.q.UserExists(ctx, id)
+}
+
+// PromoteToModerator grants the platform-moderator capability. Operator-only.
+func (s *Store) PromoteToModerator(ctx context.Context, id string) error {
+	return s.q.PromoteToModerator(ctx, id)
+}
+
 // GetUserByHandle fetches a live (non-deleted) user by case-insensitive handle.
 func (s *Store) GetUserByHandle(ctx context.Context, handle string) (User, error) {
 	return s.q.GetUserByHandle(ctx, handle)
@@ -78,6 +88,11 @@ func (s *Store) CreateIdentityRecord(ctx context.Context, userID string) error {
 	return s.q.CreateIdentityRecord(ctx, userID)
 }
 
+// SetIdentityVerificationPending marks an eKYC session as in-flight.
+func (s *Store) SetIdentityVerificationPending(ctx context.Context, userID string) error {
+	return s.q.SetIdentityVerificationPending(ctx, userID)
+}
+
 // VerifyAdultIdentity records a successful eKYC: a verified adult, retained
 // until retainUntil (Decree 147). This is what unlocks activation.
 func (s *Store) VerifyAdultIdentity(ctx context.Context, userID, providerRef string, retainUntil time.Time) error {
@@ -97,6 +112,28 @@ func (s *Store) RevokeIdentityVerification(ctx context.Context, userID string) e
 // GetIdentity fetches the vault row for a user.
 func (s *Store) GetIdentity(ctx context.Context, userID string) (Identity, error) {
 	return s.q.GetIdentity(ctx, userID)
+}
+
+// --- federated (OIDC) identities ---------------------------------------------
+
+// FederatedIdentity is the link between an external (provider, subject) and a
+// local user. Login factor only — never adult verification.
+type FederatedIdentity = sqlcdb.FederatedIdentity
+
+// GetFederatedIdentity looks up the link for a provider+subject. Returns
+// pgx.ErrNoRows when absent.
+func (s *Store) GetFederatedIdentity(ctx context.Context, provider, subject string) (FederatedIdentity, error) {
+	return s.q.GetFederatedIdentity(ctx, sqlcdb.GetFederatedIdentityParams{Provider: provider, Subject: subject})
+}
+
+// LinkFederatedIdentity records a new (provider, subject) -> user link.
+func (s *Store) LinkFederatedIdentity(ctx context.Context, provider, subject, userID string) error {
+	return s.q.LinkFederatedIdentity(ctx, sqlcdb.LinkFederatedIdentityParams{Provider: provider, Subject: subject, UserID: userID})
+}
+
+// TouchFederatedLogin updates last_login for an existing link.
+func (s *Store) TouchFederatedLogin(ctx context.Context, provider, subject string) error {
+	return s.q.TouchFederatedLogin(ctx, sqlcdb.TouchFederatedLoginParams{Provider: provider, Subject: subject})
 }
 
 // --- sessions ----------------------------------------------------------------
