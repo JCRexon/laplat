@@ -59,6 +59,7 @@ type Repo interface {
 	CreateIdentityRecord(ctx context.Context, userID string) error
 	SetIdentityVerificationPending(ctx context.Context, userID string) error
 	VerifyAdultIdentity(ctx context.Context, userID, providerRef string, retainUntil time.Time) error
+	AcceptToS(ctx context.Context, userID, version string, adultAttested bool) error
 	ActivateUser(ctx context.Context, userID string) error
 }
 
@@ -131,6 +132,25 @@ func (s *Service) Apply(ctx context.Context, r Result) error {
 		return err
 	}
 	return s.repo.ActivateUser(ctx, r.UserID)
+}
+
+// AcceptToS records a Terms-of-Service acceptance and its 18+ self-attestation.
+// An adult attestation is the 'declared' assurance tier: it activates the
+// account (the relaxed activation trigger permits this) so the user can use
+// general features without eKYC. High-risk actions still require 'verified'
+// eKYC, enforced at the point of use. A non-adult attestation is recorded but
+// does not activate — the account stays browse-only.
+func (s *Service) AcceptToS(ctx context.Context, userID, version string, adultAttested bool) error {
+	if version == "" {
+		return errors.New("identity: tos version required")
+	}
+	if err := s.repo.AcceptToS(ctx, userID, version, adultAttested); err != nil {
+		return err
+	}
+	if !adultAttested {
+		return nil
+	}
+	return s.repo.ActivateUser(ctx, userID)
 }
 
 func (s *Service) now() time.Time {

@@ -22,6 +22,7 @@ import (
 	"github.com/jcrexon/laplat/internal/config"
 	"github.com/jcrexon/laplat/internal/emailsend"
 	"github.com/jcrexon/laplat/internal/httpx"
+	"github.com/jcrexon/laplat/internal/identity"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -71,6 +72,18 @@ func run(log *slog.Logger) error {
 	}
 
 	handler := auth.NewHandler(svc, validator)
+
+	// Self-declaration (18+ attestation -> 'declared' tier). The identity service
+	// also owns eKYC, but only the low-risk ToS-accept endpoint is exposed here;
+	// the eKYC begin/callback surface is a later slice.
+	idSvc, err := identity.NewService(st, map[string]identity.Verifier{
+		"default": identity.ManualVerifier{},
+	})
+	if err != nil {
+		return err
+	}
+	handler.RegisterIdentity(idSvc)
+
 	fed, err := buildFederation(cfg, st, svc)
 	if err != nil {
 		return err

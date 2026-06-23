@@ -103,6 +103,41 @@ func Test_Verification_RegionRouting(t *testing.T) {
 	}
 }
 
+// Tiered assurance: a self-attested adult activates WITHOUT eKYC (the 'declared'
+// tier), but a non-adult attestation does not.
+func Test_AcceptToS_AdultActivatesWithoutEKYC(t *testing.T) {
+	st, ctx := newStore(t)
+	svc, _ := identity.NewService(st, map[string]identity.Verifier{"default": identity.ManualVerifier{}})
+
+	if err := svc.AcceptToS(ctx, user, "2025-06-01", true); err != nil {
+		t.Fatalf("accept (adult): %v", err)
+	}
+	if u, _ := st.GetUser(ctx, user); u.Status != "active" {
+		t.Fatalf("status after adult attestation = %q, want active", u.Status)
+	}
+	if ok, _ := st.HasAdultAttestation(ctx, user); !ok {
+		t.Fatal("HasAdultAttestation should be true")
+	}
+	if id, _ := st.GetIdentity(ctx, user); id.VerificationStatus == "verified" {
+		t.Fatal("declared tier must not be eKYC-verified")
+	}
+}
+
+func Test_AcceptToS_NonAdultDoesNotActivate(t *testing.T) {
+	st, ctx := newStore(t)
+	svc, _ := identity.NewService(st, map[string]identity.Verifier{"default": identity.ManualVerifier{}})
+
+	if err := svc.AcceptToS(ctx, user, "2025-06-01", false); err != nil {
+		t.Fatalf("accept (non-adult): %v", err)
+	}
+	if u, _ := st.GetUser(ctx, user); u.Status != "pending" {
+		t.Fatalf("status after non-adult attestation = %q, want pending (browse-only)", u.Status)
+	}
+	if ok, _ := st.HasAdultAttestation(ctx, user); ok {
+		t.Fatal("non-adult attestation must not count as adult")
+	}
+}
+
 type namedVerifier struct{ name string }
 
 func (n namedVerifier) Name() string { return n.name }

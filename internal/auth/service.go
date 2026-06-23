@@ -28,6 +28,7 @@ var (
 type SessionRepo interface {
 	GetUser(ctx context.Context, id string) (store.User, error)
 	GetIdentity(ctx context.Context, userID string) (store.Identity, error)
+	HasAdultAttestation(ctx context.Context, userID string) (bool, error)
 	CurrentTokenVersion(ctx context.Context, userID string) (int, error)
 	IssueRefreshToken(ctx context.Context, userID string, tok store.NewRefreshToken) error
 	RotateRefreshToken(ctx context.Context, presentedHash []byte, next store.NewRefreshToken) (store.Rotation, error)
@@ -177,8 +178,12 @@ func (s *Service) mint(ctx context.Context, user store.User, identity store.Iden
 	if err != nil {
 		return Session{}, err
 	}
+	declaredAdult, err := s.repo.HasAdultAttestation(ctx, user.ID)
+	if err != nil {
+		return Session{}, err
+	}
 	access, claims, err := s.minter.MintAccess(user.ID, tv,
-		identityState(identity), capabilities(user))
+		identityState(identity, declaredAdult), capabilities(user))
 	if err != nil {
 		return Session{}, err
 	}
@@ -190,17 +195,21 @@ func (s *Service) mint(ctx context.Context, user store.User, identity store.Iden
 	}, nil
 }
 
-// identityState maps the vault's verification status to the claim enum. Only an
-// explicitly verified vault yields "verified"; anything else is downgraded.
-func identityState(id store.Identity) contracts.IdentityVerificationState {
-	switch id.VerificationStatus {
-	case string(contracts.IdentityVerified):
+// identityState maps DB state to the assurance tier in the claim, ordered
+// verified > declared > pending > none. eKYC ("verified") outranks a self-
+// attestation ("declared"); a declared adult keeps that tier even while an eKYC
+// check is pending (so a pending check is never a downgrade from declared).
+func identityState(id store.Identity, declaredAdult bool) contracts.IdentityVerificationState {
+	if id.VerificationStatus == string(contracts.IdentityVerified) {
 		return contracts.IdentityVerified
-	case string(contracts.IdentityPending):
-		return contracts.IdentityPending
-	default:
-		return contracts.IdentityNone
 	}
+	if declaredAdult {
+		return contracts.IdentityDeclared
+	}
+	if id.VerificationStatus == string(contracts.IdentityPending) {
+		return contracts.IdentityPending
+	}
+	return contracts.IdentityNone
 }
 
 // capabilities derives global capabilities from the user's backing columns
