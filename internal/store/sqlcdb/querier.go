@@ -32,6 +32,9 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CurrentTokenVersion(ctx context.Context, id string) (int32, error)
 	EndSession(ctx context.Context, id string) error
+	// Resolves the rotation family a presented token belongs to (any state), so a
+	// logout can revoke the whole chain.
+	GetFamilyByHash(ctx context.Context, tokenHash []byte) (string, error)
 	GetIdentity(ctx context.Context, userID string) (IdentityVault, error)
 	// Locks the row for the duration of the rotation transaction so a token
 	// presented concurrently cannot rotate twice (serialises reuse detection).
