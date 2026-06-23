@@ -30,6 +30,7 @@ type Repo interface {
 	CreateClass(ctx context.Context, c store.NewClass) (store.Class, error)
 	GetClass(ctx context.Context, id string) (store.Class, error)
 	ListClassesByInstructor(ctx context.Context, instructorID string) ([]store.Class, error)
+	ListPublishedClasses(ctx context.Context) ([]store.Class, error)
 	UpdateClassStatus(ctx context.Context, id, status string) error
 }
 
@@ -65,6 +66,12 @@ func (s *Service) Create(ctx context.Context, claims *contracts.AccessTokenClaim
 // ListMine returns the caller's classes.
 func (s *Service) ListMine(ctx context.Context, claims *contracts.AccessTokenClaims) ([]store.Class, error) {
 	return s.repo.ListClassesByInstructor(ctx, claims.Subject)
+}
+
+// ListPublished returns the public catalog of published classes. Browsing is
+// open to any authenticated user (the lowest tier).
+func (s *Service) ListPublished(ctx context.Context) ([]store.Class, error) {
+	return s.repo.ListPublishedClasses(ctx)
 }
 
 // SetStatus moves a class to a new lifecycle status; owner only.

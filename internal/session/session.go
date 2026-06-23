@@ -50,6 +50,7 @@ type Repo interface {
 	AddParticipant(ctx context.Context, sessionID, userID, role string) error
 	RemoveParticipant(ctx context.Context, sessionID, userID string) error
 	ListActiveParticipants(ctx context.Context, sessionID string) ([]store.SessionParticipant, error)
+	ListSessionsByClass(ctx context.Context, classID string) ([]store.Session, error)
 }
 
 // Service orchestrates sessions and grants.
@@ -77,7 +78,7 @@ func NewService(repo Repo, granter Granter, wsURL string) (*Service, error) {
 // CreateSession creates a class or direct session and records the caller as its
 // host. A class requires the can_instruct capability; both kinds require the
 // caller to meet phone verification.
-func (s *Service) CreateSession(ctx context.Context, claims *contracts.AccessTokenClaims, kind string, classID *string) (store.Session, error) {
+func (s *Service) CreateSession(ctx context.Context, claims *contracts.AccessTokenClaims, kind string, classID *string, scheduledStart *time.Time) (store.Session, error) {
 	if kind != "class" && kind != "direct" {
 		return store.Session{}, ErrInvalidKind
 	}
@@ -106,10 +107,11 @@ func (s *Service) CreateSession(ctx context.Context, claims *contracts.AccessTok
 
 	id := s.NewID()
 	sess, err := s.repo.CreateSession(ctx, store.NewSession{
-		ID:          id,
-		Kind:        kind,
-		ClassID:     classID,
-		LivekitRoom: "ses_" + id,
+		ID:             id,
+		Kind:           kind,
+		ClassID:        classID,
+		LivekitRoom:    "ses_" + id,
+		ScheduledStart: scheduledStart,
 	})
 	if err != nil {
 		return store.Session{}, err
@@ -202,6 +204,15 @@ func (s *Service) End(ctx context.Context, claims *contracts.AccessTokenClaims, 
 		return err
 	}
 	return s.repo.EndSession(ctx, sessionID)
+}
+
+// ListForClass returns a class's sessions for discovery. Browsing a schedule is
+// a general-features action, so it requires at least the declared tier.
+func (s *Service) ListForClass(ctx context.Context, claims *contracts.AccessTokenClaims, classID string) ([]store.Session, error) {
+	if !claims.MeetsAdultDeclaration() {
+		return nil, ErrForbidden
+	}
+	return s.repo.ListSessionsByClass(ctx, classID)
 }
 
 // Leave removes the caller from the session's active participants.

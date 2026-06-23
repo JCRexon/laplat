@@ -95,6 +95,41 @@ func (q *Queries) ListClassesByInstructor(ctx context.Context, instructorID stri
 	return items, nil
 }
 
+const listPublishedClasses = `-- name: ListPublishedClasses :many
+SELECT id, instructor_id, title, description, status, created_at
+FROM classes WHERE status = 'published'
+ORDER BY created_at DESC
+LIMIT 100
+`
+
+// Public catalog: published classes, newest first (bounded).
+func (q *Queries) ListPublishedClasses(ctx context.Context) ([]Class, error) {
+	rows, err := q.db.Query(ctx, listPublishedClasses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Class{}
+	for rows.Next() {
+		var i Class
+		if err := rows.Scan(
+			&i.ID,
+			&i.InstructorID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateClassStatus = `-- name: UpdateClassStatus :exec
 UPDATE classes SET status = $2 WHERE id = $1
 `

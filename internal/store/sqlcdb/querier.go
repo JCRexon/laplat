@@ -82,6 +82,10 @@ type Querier interface {
 	LinkPhoneIdentity(ctx context.Context, arg LinkPhoneIdentityParams) error
 	ListActiveParticipants(ctx context.Context, sessionID string) ([]SessionParticipant, error)
 	ListClassesByInstructor(ctx context.Context, instructorID string) ([]Class, error)
+	// Public catalog: published classes, newest first (bounded).
+	ListPublishedClasses(ctx context.Context) ([]Class, error)
+	// A class's sessions for discovery: soonest-scheduled first, then newest.
+	ListSessionsByClass(ctx context.Context, classID *string) ([]Session, error)
 	MarkRefreshTokenReplaced(ctx context.Context, arg MarkRefreshTokenReplacedParams) error
 	// Grants the platform-moderator capability (backs caps:platform_moderator).
 	// Operator-only path (adminctl); never reachable from user-facing handlers.

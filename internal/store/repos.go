@@ -289,6 +289,11 @@ func (s *Store) UpdateClassStatus(ctx context.Context, id, status string) error 
 	return s.q.UpdateClassStatus(ctx, sqlcdb.UpdateClassStatusParams{ID: id, Status: status})
 }
 
+// ListPublishedClasses returns the public catalog (published classes).
+func (s *Store) ListPublishedClasses(ctx context.Context) ([]Class, error) {
+	return s.q.ListPublishedClasses(ctx)
+}
+
 // --- sessions ----------------------------------------------------------------
 
 // NewSession describes a session to create. For kind="direct", ClassID must be
@@ -348,4 +353,9 @@ func (s *Store) RemoveParticipant(ctx context.Context, sessionID, userID string)
 // ListActiveParticipants returns the currently-present participants.
 func (s *Store) ListActiveParticipants(ctx context.Context, sessionID string) ([]SessionParticipant, error) {
 	return s.q.ListActiveParticipants(ctx, sessionID)
+}
+
+// ListSessionsByClass returns a class's sessions for discovery.
+func (s *Store) ListSessionsByClass(ctx context.Context, classID string) ([]Session, error) {
+	return s.q.ListSessionsByClass(ctx, &classID)
 }

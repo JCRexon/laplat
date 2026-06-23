@@ -70,6 +70,25 @@ func TestClass_CreateListPublish(t *testing.T) {
 	}
 }
 
+// The public catalog lists only published classes.
+func TestClass_PublishedCatalog(t *testing.T) {
+	svc, st, ctx := newSvc(t)
+	instr := mkUser(t, st, ctx, "cat-instr", contracts.IdentityPhoneVerified, true)
+	pub, _ := svc.Create(ctx, instr, "Published", "")
+	if err := svc.SetStatus(ctx, instr, pub.ID, "published"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = svc.Create(ctx, instr, "Draft", "") // stays draft
+
+	catalog, err := svc.ListPublished(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != 1 || catalog[0].ID != pub.ID {
+		t.Fatalf("catalog should contain only the published class: %+v", catalog)
+	}
+}
+
 // Authz: a non-instructor (or phone-unverified) user cannot create a class, and
 // a user cannot change another instructor's class.
 func TestClass_Authz(t *testing.T) {

@@ -132,6 +132,44 @@ func (q *Queries) ListActiveParticipants(ctx context.Context, sessionID string) 
 	return items, nil
 }
 
+const listSessionsByClass = `-- name: ListSessionsByClass :many
+SELECT id, kind, class_id, livekit_room, status, scheduled_start, started_at, ended_at, created_at
+FROM sessions WHERE class_id = $1
+ORDER BY scheduled_start ASC NULLS LAST, created_at DESC
+LIMIT 100
+`
+
+// A class's sessions for discovery: soonest-scheduled first, then newest.
+func (q *Queries) ListSessionsByClass(ctx context.Context, classID *string) ([]Session, error) {
+	rows, err := q.db.Query(ctx, listSessionsByClass, classID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Session{}
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.ClassID,
+			&i.LivekitRoom,
+			&i.Status,
+			&i.ScheduledStart,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeParticipant = `-- name: RemoveParticipant :exec
 UPDATE session_participants SET left_at = now()
 WHERE session_id = $1 AND user_id = $2 AND left_at IS NULL

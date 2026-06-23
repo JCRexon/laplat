@@ -90,7 +90,7 @@ func TestSession_ClassHostAndParticipant(t *testing.T) {
 	learner := mkUser(t, st, ctx, "learner1", contracts.IdentityPhoneVerified)
 	classID := mkClass(t, st, ctx, "class-1", "host1")
 
-	sess, err := svc.CreateSession(ctx, host, "class", &classID)
+	sess, err := svc.CreateSession(ctx, host, "class", &classID, nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -126,9 +126,9 @@ func TestSession_TierGating(t *testing.T) {
 	declared := mkUser(t, st, ctx, "declared2", contracts.IdentityDeclared)
 	classID := mkClass(t, st, ctx, "class-2", "host2")
 
-	sess, _ := svc.CreateSession(ctx, instructor, "class", &classID)
+	sess, _ := svc.CreateSession(ctx, instructor, "class", &classID, nil)
 
-	if _, err := svc.CreateSession(ctx, declared, "direct", nil); err != session.ErrForbidden {
+	if _, err := svc.CreateSession(ctx, declared, "direct", nil, nil); err != session.ErrForbidden {
 		t.Fatalf("declared create direct err = %v, want ErrForbidden", err)
 	}
 	if _, err := svc.Join(ctx, declared, sess.ID); err != session.ErrForbidden {
@@ -137,12 +137,41 @@ func TestSession_TierGating(t *testing.T) {
 
 	// A phone-verified but non-instructor user cannot host a class...
 	noInstruct := mkUser(t, st, ctx, "noinstr2", contracts.IdentityPhoneVerified)
-	if _, err := svc.CreateSession(ctx, noInstruct, "class", &classID); err != session.ErrForbidden {
+	if _, err := svc.CreateSession(ctx, noInstruct, "class", &classID, nil); err != session.ErrForbidden {
 		t.Fatalf("non-instructor class err = %v, want ErrForbidden", err)
 	}
 	// ...but can create a 1:1 direct session.
-	if _, err := svc.CreateSession(ctx, noInstruct, "direct", nil); err != nil {
+	if _, err := svc.CreateSession(ctx, noInstruct, "direct", nil, nil); err != nil {
 		t.Fatalf("non-instructor direct create: %v", err)
+	}
+}
+
+// A scheduled class session is discoverable via ListForClass (declared tier),
+// carrying its scheduled start; a none-tier user cannot list.
+func TestSession_ScheduleAndDiscover(t *testing.T) {
+	svc, st, ctx := newSvc(t)
+	host := mkUser(t, st, ctx, "host4", contracts.IdentityPhoneVerified, contracts.CapCanInstruct)
+	classID := mkClass(t, st, ctx, "class-4", "host4")
+	when := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+
+	if _, err := svc.CreateSession(ctx, host, "class", &classID, &when); err != nil {
+		t.Fatalf("create scheduled: %v", err)
+	}
+
+	// A declared (browsing) learner can discover the class's sessions.
+	learner := mkUser(t, st, ctx, "learner4", contracts.IdentityDeclared)
+	list, err := svc.ListForClass(ctx, learner, classID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 1 || list[0].ScheduledStart == nil || !list[0].ScheduledStart.Equal(when) {
+		t.Fatalf("scheduled session not listed correctly: %+v", list)
+	}
+
+	// A none-tier user (no attestation) cannot list.
+	none := mkUser(t, st, ctx, "none4", contracts.IdentityNone)
+	if _, err := svc.ListForClass(ctx, none, classID); err != session.ErrForbidden {
+		t.Fatalf("none-tier list err = %v, want ErrForbidden", err)
 	}
 }
 
@@ -153,7 +182,7 @@ func TestSession_DirectPublishAndCap(t *testing.T) {
 	b := mkUser(t, st, ctx, "b3", contracts.IdentityPhoneVerified)
 	c := mkUser(t, st, ctx, "c3", contracts.IdentityPhoneVerified)
 
-	sess, err := svc.CreateSession(ctx, a, "direct", nil)
+	sess, err := svc.CreateSession(ctx, a, "direct", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

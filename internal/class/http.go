@@ -24,6 +24,7 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h := &Handler{svc: svc, validator: validator, mux: http.NewServeMux()}
 	h.mux.Handle("POST /v1/classes", h.auth(h.create))
 	h.mux.Handle("GET /v1/classes", h.auth(h.listMine))
+	h.mux.Handle("GET /v1/classes/published", h.auth(h.listPublished))
 	h.mux.Handle("POST /v1/classes/{id}/status", h.auth(h.setStatus))
 	return h
 }
@@ -66,6 +67,19 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request, claims *contrac
 
 func (h *Handler) listMine(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
 	classes, err := h.svc.ListMine(r.Context(), claims)
+	if err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	out := make([]map[string]string, 0, len(classes))
+	for _, c := range classes {
+		out = append(out, classView(c))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"classes": out})
+}
+
+func (h *Handler) listPublished(w http.ResponseWriter, r *http.Request, _ *contracts.AccessTokenClaims) {
+	classes, err := h.svc.ListPublished(r.Context())
 	if err != nil {
 		writeServiceErr(w, err)
 		return

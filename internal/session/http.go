@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -26,6 +27,7 @@ type ctxKey struct{}
 func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h := &Handler{svc: svc, validator: validator, mux: http.NewServeMux()}
 	h.mux.Handle("POST /v1/sessions", h.auth(h.create))
+	h.mux.Handle("GET /v1/sessions", h.auth(h.listForClass))
 	h.mux.Handle("POST /v1/sessions/{id}/join", h.auth(h.join))
 	h.mux.Handle("POST /v1/sessions/{id}/start", h.auth(h.start))
 	h.mux.Handle("POST /v1/sessions/{id}/end", h.auth(h.end))
@@ -53,8 +55,9 @@ func (h *Handler) auth(next func(http.ResponseWriter, *http.Request, *contracts.
 }
 
 type createBody struct {
-	Kind    string  `json:"kind"`
-	ClassID *string `json:"classId,omitempty"`
+	Kind           string  `json:"kind"`
+	ClassID        *string `json:"classId,omitempty"`
+	ScheduledStart string  `json:"scheduledStart,omitempty"` // RFC3339, optional
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
@@ -62,7 +65,16 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request, claims *contrac
 	if !decode(w, r, &req) {
 		return
 	}
-	sess, err := h.svc.CreateSession(r.Context(), claims, req.Kind, req.ClassID)
+	var scheduled *time.Time
+	if req.ScheduledStart != "" {
+		ts, err := time.Parse(time.RFC3339, req.ScheduledStart)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "scheduledStart must be RFC3339")
+			return
+		}
+		scheduled = &ts
+	}
+	sess, err := h.svc.CreateSession(r.Context(), claims, req.Kind, req.ClassID, scheduled)
 	if err != nil {
 		writeServiceErr(w, err)
 		return
@@ -72,6 +84,28 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request, claims *contrac
 		"room":      sess.LivekitRoom,
 		"kind":      sess.Kind,
 	})
+}
+
+func (h *Handler) listForClass(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	classID := r.URL.Query().Get("classId")
+	if classID == "" {
+		writeErr(w, http.StatusBadRequest, "classId query parameter required")
+		return
+	}
+	sessions, err := h.svc.ListForClass(r.Context(), claims, classID)
+	if err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	out := make([]map[string]any, 0, len(sessions))
+	for _, s := range sessions {
+		v := map[string]any{"sessionId": s.ID, "kind": s.Kind, "status": s.Status, "room": s.LivekitRoom}
+		if s.ScheduledStart != nil {
+			v["scheduledStart"] = s.ScheduledStart.UTC().Format(time.RFC3339)
+		}
+		out = append(out, v)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
 }
 
 func (h *Handler) join(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
