@@ -21,6 +21,7 @@ import (
 	"github.com/jcrexon/laplat/internal/auth"
 	"github.com/jcrexon/laplat/internal/config"
 	"github.com/jcrexon/laplat/internal/emailsend"
+	"github.com/jcrexon/laplat/internal/httpx"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -95,9 +96,19 @@ func run(log *slog.Logger) error {
 		log.Info("email-otp login enabled", "from", cfg.SMTP.From)
 	}
 
+	// Rate-limit the API per client IP, but NOT the health probes (k8s must
+	// always reach them). Then wrap everything in request-id/logging/recovery.
+	limiter := httpx.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
+	limitedAPI := limiter.Limit(handler)
+	root := httpx.Chain(rootHandler(limitedAPI, pool),
+		httpx.RequestID,      // outermost: id available to logging + responses
+		httpx.AccessLog(log), // record every response (incl. 429/500)
+		httpx.Recover(log),   // panic -> 500, recorded by AccessLog
+	)
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           rootHandler(handler, pool),
+		Handler:           root,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
