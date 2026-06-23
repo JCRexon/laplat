@@ -20,6 +20,18 @@ func (q *Queries) ActivateUser(ctx context.Context, id string) error {
 	return err
 }
 
+const closeAccount = `-- name: CloseAccount :exec
+UPDATE users SET status = 'deleted', deleted_at = now(), token_version = token_version + 1
+WHERE id = $1
+`
+
+// Self-service erasure: soft-delete AND revoke-all (bump token_version) in one
+// atomic statement, so outstanding access tokens stop validating immediately.
+func (q *Queries) CloseAccount(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, closeAccount, id)
+	return err
+}
+
 const createUser = `-- name: CreateUser :one
 
 INSERT INTO users (id, handle, display_name, locale, can_instruct)

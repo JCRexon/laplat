@@ -21,6 +21,9 @@ type Querier interface {
 	// Revoke-all for a user: every outstanding access token (tver < new) is now
 	// superseded. Returns the new version.
 	BumpTokenVersion(ctx context.Context, id string) (int32, error)
+	// Self-service erasure: soft-delete AND revoke-all (bump token_version) in one
+	// atomic statement, so outstanding access tokens stop validating immediately.
+	CloseAccount(ctx context.Context, id string) error
 	ConsumeLoginChallenge(ctx context.Context, id string) error
 	ConsumePhoneChallenge(ctx context.Context, id string) error
 	// Classes: instructor course definitions.

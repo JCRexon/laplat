@@ -39,3 +39,9 @@ UPDATE users SET status = 'suspended' WHERE id = $1;
 
 -- name: SoftDeleteUser :exec
 UPDATE users SET status = 'deleted', deleted_at = now() WHERE id = $1;
+
+-- name: CloseAccount :exec
+-- Self-service erasure: soft-delete AND revoke-all (bump token_version) in one
+-- atomic statement, so outstanding access tokens stop validating immediately.
+UPDATE users SET status = 'deleted', deleted_at = now(), token_version = token_version + 1
+WHERE id = $1;

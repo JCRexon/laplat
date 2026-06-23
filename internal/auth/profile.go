@@ -34,3 +34,9 @@ func (s *Service) UpdateProfile(ctx context.Context, userID, handle, displayName
 	}
 	return s.repo.UpdateProfile(ctx, userID, handle, displayName, bio)
 }
+
+// CloseAccount is self-service erasure: it soft-deletes the account and revokes
+// all outstanding tokens. After this the caller's tokens stop validating.
+func (s *Service) CloseAccount(ctx context.Context, userID string) error {
+	return s.repo.CloseAccount(ctx, userID)
+}

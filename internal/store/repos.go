@@ -104,6 +104,12 @@ func (s *Store) SoftDeleteUser(ctx context.Context, id string) error {
 	return s.q.SoftDeleteUser(ctx, id)
 }
 
+// CloseAccount is self-service erasure: soft-delete plus revoke-all in one
+// atomic statement (outstanding access tokens stop validating immediately).
+func (s *Store) CloseAccount(ctx context.Context, id string) error {
+	return s.q.CloseAccount(ctx, id)
+}
+
 // --- identity vault ----------------------------------------------------------
 
 // CreateIdentityRecord establishes the (unverified, non-adult) vault row.
