@@ -22,6 +22,7 @@ type Querier interface {
 	// (full_name_enc, dob_enc, ...) are written by the eKYC ingestion path, not
 	// here. Retention (retain_until) follows Decree 147 (>= 24 months).
 	// Establishes the vault row in its default unverified, non-adult state.
+	// Idempotent so bootstrap/relink paths can call it unconditionally.
 	CreateIdentityRecord(ctx context.Context, userID string) error
 	// Sessions and their participants. The kind/class_id coherence CHECK and the
 	// direct-session participant cap are enforced DB-side; these queries surface
@@ -52,6 +53,9 @@ type Querier interface {
 	IssueRefreshToken(ctx context.Context, arg IssueRefreshTokenParams) error
 	ListActiveParticipants(ctx context.Context, sessionID string) ([]SessionParticipant, error)
 	MarkRefreshTokenReplaced(ctx context.Context, arg MarkRefreshTokenReplacedParams) error
+	// Grants the platform-moderator capability (backs caps:platform_moderator).
+	// Operator-only path (adminctl); never reachable from user-facing handlers.
+	PromoteToModerator(ctx context.Context, id string) error
 	RemoveParticipant(ctx context.Context, arg RemoveParticipantParams) error
 	// Single-token revocation: denylist a jti until its natural expiry. Idempotent.
 	RevokeAccessToken(ctx context.Context, arg RevokeAccessTokenParams) error
@@ -63,6 +67,7 @@ type Querier interface {
 	SoftDeleteUser(ctx context.Context, id string) error
 	StartSession(ctx context.Context, id string) error
 	SuspendUser(ctx context.Context, id string) error
+	UserExists(ctx context.Context, id string) (bool, error)
 	// Records a successful eKYC: verified adult. This is the state the activation
 	// trigger requires before a user may go active.
 	VerifyAdultIdentity(ctx context.Context, arg VerifyAdultIdentityParams) error

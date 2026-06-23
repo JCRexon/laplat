@@ -13,6 +13,7 @@ import (
 const createIdentityRecord = `-- name: CreateIdentityRecord :exec
 
 INSERT INTO identity_vault (user_id) VALUES ($1)
+ON CONFLICT (user_id) DO NOTHING
 `
 
 // identity_vault: the only place identity PII lives (encrypted at rest). These
@@ -20,6 +21,7 @@ INSERT INTO identity_vault (user_id) VALUES ($1)
 // (full_name_enc, dob_enc, ...) are written by the eKYC ingestion path, not
 // here. Retention (retain_until) follows Decree 147 (>= 24 months).
 // Establishes the vault row in its default unverified, non-adult state.
+// Idempotent so bootstrap/relink paths can call it unconditionally.
 func (q *Queries) CreateIdentityRecord(ctx context.Context, userID string) error {
 	_, err := q.db.Exec(ctx, createIdentityRecord, userID)
 	return err

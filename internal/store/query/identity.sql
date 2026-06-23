@@ -5,7 +5,9 @@
 
 -- name: CreateIdentityRecord :exec
 -- Establishes the vault row in its default unverified, non-adult state.
-INSERT INTO identity_vault (user_id) VALUES ($1);
+-- Idempotent so bootstrap/relink paths can call it unconditionally.
+INSERT INTO identity_vault (user_id) VALUES ($1)
+ON CONFLICT (user_id) DO NOTHING;
 
 -- name: VerifyAdultIdentity :exec
 -- Records a successful eKYC: verified adult. This is the state the activation

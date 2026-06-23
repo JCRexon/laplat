@@ -112,6 +112,17 @@ func (q *Queries) GetUserByHandle(ctx context.Context, lower string) (User, erro
 	return i, err
 }
 
+const promoteToModerator = `-- name: PromoteToModerator :exec
+UPDATE users SET is_platform_moderator = true WHERE id = $1
+`
+
+// Grants the platform-moderator capability (backs caps:platform_moderator).
+// Operator-only path (adminctl); never reachable from user-facing handlers.
+func (q *Queries) PromoteToModerator(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, promoteToModerator, id)
+	return err
+}
+
 const softDeleteUser = `-- name: SoftDeleteUser :exec
 UPDATE users SET status = 'deleted', deleted_at = now() WHERE id = $1
 `
@@ -128,4 +139,15 @@ UPDATE users SET status = 'suspended' WHERE id = $1
 func (q *Queries) SuspendUser(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, suspendUser, id)
 	return err
+}
+
+const userExists = `-- name: UserExists :one
+SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)
+`
+
+func (q *Queries) UserExists(ctx context.Context, id string) (bool, error) {
+	row := q.db.QueryRow(ctx, userExists, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }

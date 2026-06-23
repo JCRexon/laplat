@@ -48,6 +48,16 @@ func (s *Store) GetUser(ctx context.Context, id string) (User, error) {
 	return s.q.GetUser(ctx, id)
 }
 
+// UserExists reports whether a user id is present.
+func (s *Store) UserExists(ctx context.Context, id string) (bool, error) {
+	return s.q.UserExists(ctx, id)
+}
+
+// PromoteToModerator grants the platform-moderator capability. Operator-only.
+func (s *Store) PromoteToModerator(ctx context.Context, id string) error {
+	return s.q.PromoteToModerator(ctx, id)
+}
+
 // GetUserByHandle fetches a live (non-deleted) user by case-insensitive handle.
 func (s *Store) GetUserByHandle(ctx context.Context, handle string) (User, error) {
 	return s.q.GetUserByHandle(ctx, handle)
