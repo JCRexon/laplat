@@ -30,6 +30,7 @@ type Handler struct {
 	email     *EmailLogin // nil unless RegisterEmailLogin was called
 	phone     *PhoneLogin // nil unless RegisterPhoneLogin was called
 	tos       ToSAcceptor // nil unless RegisterIdentity was called
+	ekyc      EKYCService // nil unless RegisterIdentity received one
 	mux       *http.ServeMux
 }
 

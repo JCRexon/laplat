@@ -21,6 +21,7 @@ import (
 	"github.com/jcrexon/laplat/internal/auth"
 	"github.com/jcrexon/laplat/internal/class"
 	"github.com/jcrexon/laplat/internal/config"
+	"github.com/jcrexon/laplat/internal/ekyc"
 	"github.com/jcrexon/laplat/internal/emailsend"
 	"github.com/jcrexon/laplat/internal/httpx"
 	"github.com/jcrexon/laplat/internal/identity"
@@ -76,16 +77,34 @@ func run(log *slog.Logger) error {
 
 	handler := auth.NewHandler(svc, validator)
 
-	// Self-declaration (18+ attestation -> 'declared' tier). The identity service
-	// also owns eKYC, but only the low-risk ToS-accept endpoint is exposed here;
-	// the eKYC begin/callback surface is a later slice.
-	idSvc, err := identity.NewService(st, map[string]identity.Verifier{
-		"default": identity.ManualVerifier{},
-	})
-	if err != nil {
-		return err
+	// Identity: self-declaration ('declared' tier) always; the VN eKYC vendor
+	// ('verified' tier) for region VN when configured.
+	providers := map[string]identity.Verifier{"default": identity.ManualVerifier{}}
+	var ekycFlow auth.EKYCService
+	if cfg.EKYC != nil {
+		client, err := ekyc.NewHTTPClient(ekyc.HTTPConfig{URL: cfg.EKYC.VendorURL, Token: cfg.EKYC.VendorToken}, nil)
+		if err != nil {
+			return err
+		}
+		vn, err := ekyc.NewVN(client, cfg.EKYC.WebhookSecret)
+		if err != nil {
+			return err
+		}
+		providers["VN"] = vn
+		idSvc, err := identity.NewService(st, providers)
+		if err != nil {
+			return err
+		}
+		ekycFlow = &ekycBridge{id: idSvc, vn: vn}
+		handler.RegisterIdentity(idSvc, ekycFlow)
+		log.Info("vn eKYC enabled (verified tier)")
+	} else {
+		idSvc, err := identity.NewService(st, providers)
+		if err != nil {
+			return err
+		}
+		handler.RegisterIdentity(idSvc, nil)
 	}
-	handler.RegisterIdentity(idSvc)
 
 	fed, err := buildFederation(cfg, st, svc)
 	if err != nil {

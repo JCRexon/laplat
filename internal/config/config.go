@@ -60,6 +60,12 @@ const (
 	EnvLiveKitAPIKey    = "LAPLAT_LIVEKIT_API_KEY"
 	EnvLiveKitAPISecret = "LAPLAT_LIVEKIT_API_SECRET"
 	EnvLiveKitURL       = "LAPLAT_LIVEKIT_URL" // wss://... media server
+
+	// VN eKYC vendor (optional). Enables the 'verified' tier for region VN when
+	// the vendor URL and webhook secret are present.
+	EnvEKYCVendorURL     = "LAPLAT_EKYC_VENDOR_URL"
+	EnvEKYCVendorToken   = "LAPLAT_EKYC_VENDOR_TOKEN"
+	EnvEKYCWebhookSecret = "LAPLAT_EKYC_WEBHOOK_SECRET"
 )
 
 // Defaults.
@@ -86,6 +92,14 @@ type Config struct {
 	SMTP           *SMTPConfig    // nil unless email-OTP login is configured
 	SMS            *SMSConfig     // nil unless phone-OTP login is configured
 	LiveKit        *LiveKitConfig // nil unless live sessions are configured
+	EKYC           *EKYCConfig    // nil unless the VN eKYC vendor is configured
+}
+
+// EKYCConfig is the (optional) VN adult-verification vendor configuration.
+type EKYCConfig struct {
+	VendorURL     string
+	VendorToken   string
+	WebhookSecret string
 }
 
 // LiveKitConfig is the (optional) live-session media configuration.
@@ -209,7 +223,28 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.LiveKit, err = parseLiveKit(getenv); err != nil {
 		return Config{}, err
 	}
+	if cfg.EKYC, err = parseEKYC(getenv); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// parseEKYC reads the optional VN eKYC vendor config. Enabled when the vendor
+// URL or webhook secret is set; both are then required (the token is optional).
+func parseEKYC(getenv func(string) string) (*EKYCConfig, error) {
+	url := strings.TrimSpace(getenv(EnvEKYCVendorURL))
+	secret := strings.TrimSpace(getenv(EnvEKYCWebhookSecret))
+	if url == "" && secret == "" {
+		return nil, nil // eKYC disabled
+	}
+	if url == "" || secret == "" {
+		return nil, fmt.Errorf("config: eKYC needs both %s and %s", EnvEKYCVendorURL, EnvEKYCWebhookSecret)
+	}
+	return &EKYCConfig{
+		VendorURL:     url,
+		VendorToken:   strings.TrimSpace(getenv(EnvEKYCVendorToken)),
+		WebhookSecret: secret,
+	}, nil
 }
 
 // parseLiveKit reads the optional live-session config. Enabled when any of the
