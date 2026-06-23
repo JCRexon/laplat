@@ -86,6 +86,19 @@ func (s *Store) IssueRefreshToken(ctx context.Context, userID string, tok NewRef
 	})
 }
 
+// RevokeRefreshFamilyByHash revokes every live token in the rotation family the
+// presented token belongs to (logout / forced sign-out). Returns
+// ErrRefreshNotFound if the hash matches no token.
+func (s *Store) RevokeRefreshFamilyByHash(ctx context.Context, presentedHash []byte) error {
+	family, err := s.q.GetFamilyByHash(ctx, presentedHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrRefreshNotFound
+	} else if err != nil {
+		return err
+	}
+	return s.q.RevokeRefreshFamily(ctx, family)
+}
+
 // Rotation reports the family and user a successful rotation belonged to.
 type Rotation struct {
 	UserID   string

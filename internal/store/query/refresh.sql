@@ -23,3 +23,8 @@ WHERE id = $1;
 UPDATE refresh_tokens
 SET revoked_at = now()
 WHERE family_id = $1 AND revoked_at IS NULL;
+
+-- name: GetFamilyByHash :one
+-- Resolves the rotation family a presented token belongs to (any state), so a
+-- logout can revoke the whole chain.
+SELECT family_id FROM refresh_tokens WHERE token_hash = $1;

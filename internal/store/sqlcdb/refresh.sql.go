@@ -10,6 +10,19 @@ import (
 	"time"
 )
 
+const getFamilyByHash = `-- name: GetFamilyByHash :one
+SELECT family_id FROM refresh_tokens WHERE token_hash = $1
+`
+
+// Resolves the rotation family a presented token belongs to (any state), so a
+// logout can revoke the whole chain.
+func (q *Queries) GetFamilyByHash(ctx context.Context, tokenHash []byte) (string, error) {
+	row := q.db.QueryRow(ctx, getFamilyByHash, tokenHash)
+	var family_id string
+	err := row.Scan(&family_id)
+	return family_id, err
+}
+
 const getRefreshTokenByHashForUpdate = `-- name: GetRefreshTokenByHashForUpdate :one
 SELECT id, user_id, family_id, token_hash, expires_at, revoked_at, replaced_by_id, created_at
 FROM refresh_tokens
