@@ -13,9 +13,6 @@ import (
 // ErrUnknownProvider means the requested federated provider is not configured.
 var ErrUnknownProvider = errors.New("auth: unknown federated provider")
 
-// allowedProviders matches the federated_identities provider CHECK constraint.
-var allowedProviders = map[string]bool{"google": true, "apple": true, "zalo": true}
-
 // BindingKind tells the HTTP layer how to derive the authorize-request
 // challenge from the per-login secret it stores in a cookie.
 type BindingKind int
@@ -177,18 +174,18 @@ type Federation struct {
 	authn      *Authenticator
 }
 
-// NewFederation validates and wires the connectors. Provider keys must be in the
-// federated_identities CHECK set (google/apple/zalo). Linkage and session
-// issuance go through the Authenticator (the federated LinkResolver is
-// registered here), so this flow owns only the redirect/callback mechanics.
+// NewFederation validates and wires the connectors. The set of valid provider
+// names lives in the auth_providers reference table (Brick 3), enforced by the
+// federated_identities FK and validated against configured connectors at
+// startup (see buildFederation); this constructor no longer carries a hardcoded
+// allowlist. Linkage and session issuance go through the Authenticator (the
+// federated LinkResolver is registered here), so this flow owns only the
+// redirect/callback mechanics.
 func NewFederation(st FederationStore, sessions *Service, connectors map[string]Connector) (*Federation, error) {
 	if st == nil || sessions == nil {
 		return nil, errors.New("auth: federation requires store and sessions")
 	}
 	for name, c := range connectors {
-		if !allowedProviders[name] {
-			return nil, errors.New("auth: federation provider not allowed: " + name)
-		}
 		if c == nil {
 			return nil, errors.New("auth: federation connector nil for " + name)
 		}

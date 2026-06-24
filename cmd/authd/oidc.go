@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/jcrexon/laplat/internal/auth"
 	"github.com/jcrexon/laplat/internal/config"
 	"github.com/jcrexon/laplat/internal/oidc"
@@ -79,6 +82,24 @@ func buildFederation(cfg config.Config, st *store.Store, svc *auth.Service) (*au
 			return nil, err
 		}
 		connectors["zalo"] = conn
+	}
+
+	// Fail fast: every configured connector's provider must be registered in the
+	// auth_providers reference table (Brick 3 — the data-driven replacement for a
+	// hardcoded allowlist). The federated_identities FK would otherwise only
+	// reject an unregistered provider at first login.
+	registered, err := st.ListAuthProviders(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	valid := make(map[string]bool, len(registered))
+	for _, p := range registered {
+		valid[p] = true
+	}
+	for name := range connectors {
+		if !valid[name] {
+			return nil, fmt.Errorf("auth: provider %q is configured but not registered in auth_providers", name)
+		}
 	}
 
 	return auth.NewFederation(st, svc, connectors)
