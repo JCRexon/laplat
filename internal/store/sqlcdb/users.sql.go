@@ -124,6 +124,17 @@ func (q *Queries) GetUserByHandle(ctx context.Context, lower string) (User, erro
 	return i, err
 }
 
+const grantInstructor = `-- name: GrantInstructor :exec
+UPDATE users SET can_instruct = true WHERE id = $1
+`
+
+// Grants the can_instruct capability. Self-serve, but gated on the verified
+// (eKYC) tier in the service. Idempotent.
+func (q *Queries) GrantInstructor(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, grantInstructor, id)
+	return err
+}
+
 const promoteToModerator = `-- name: PromoteToModerator :exec
 UPDATE users SET is_platform_moderator = true WHERE id = $1
 `
@@ -132,6 +143,16 @@ UPDATE users SET is_platform_moderator = true WHERE id = $1
 // Operator-only path (adminctl); never reachable from user-facing handlers.
 func (q *Queries) PromoteToModerator(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, promoteToModerator, id)
+	return err
+}
+
+const revokeInstructor = `-- name: RevokeInstructor :exec
+UPDATE users SET can_instruct = false WHERE id = $1
+`
+
+// Strips the can_instruct capability (moderator action).
+func (q *Queries) RevokeInstructor(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, revokeInstructor, id)
 	return err
 }
 

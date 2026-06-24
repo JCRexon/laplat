@@ -46,6 +46,7 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h.mux.Handle("GET /v1/me", h.requireAuth(http.HandlerFunc(h.handleMe)))
 	h.mux.Handle("PATCH /v1/me", h.requireAuth(http.HandlerFunc(h.handleUpdateProfile)))
 	h.mux.Handle("DELETE /v1/me", h.requireAuth(http.HandlerFunc(h.handleCloseAccount)))
+	h.mux.Handle("POST /v1/instructor/apply", h.requireAuth(http.HandlerFunc(h.handleBecomeInstructor)))
 	return h
 }
 
@@ -182,6 +183,22 @@ func (h *Handler) handleLogoutAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleBecomeInstructor grants the caller the can_instruct capability if they
+// are verified (eKYC). 204 on success (refresh to pick up the capability); 403
+// if not yet verified. Idempotent.
+func (h *Handler) handleBecomeInstructor(w http.ResponseWriter, r *http.Request) {
+	claims, _ := ClaimsFrom(r.Context())
+	err := h.svc.BecomeInstructor(r.Context(), claims)
+	switch {
+	case errors.Is(err, ErrNotVerified):
+		writeError(w, http.StatusForbidden, "requires verified identity")
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "could not grant instructor")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // handleCloseAccount is self-service account erasure: it soft-deletes the

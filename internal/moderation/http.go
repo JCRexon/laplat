@@ -22,6 +22,8 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h := &Handler{svc: svc, validator: validator, mux: http.NewServeMux()}
 	h.mux.Handle("POST /v1/moderation/users/{id}/suspend", h.auth(h.suspend))
 	h.mux.Handle("POST /v1/moderation/users/{id}/reinstate", h.auth(h.reinstate))
+	h.mux.Handle("POST /v1/moderation/users/{id}/instructor", h.auth(h.grantInstructor))
+	h.mux.Handle("DELETE /v1/moderation/users/{id}/instructor", h.auth(h.revokeInstructor))
 	return h
 }
 
@@ -53,6 +55,22 @@ func (h *Handler) suspend(w http.ResponseWriter, r *http.Request, claims *contra
 
 func (h *Handler) reinstate(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
 	if err := h.svc.Reinstate(r.Context(), claims, r.PathValue("id")); err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) grantInstructor(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	if err := h.svc.SetInstructor(r.Context(), claims, r.PathValue("id"), true); err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) revokeInstructor(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	if err := h.svc.SetInstructor(r.Context(), claims, r.PathValue("id"), false); err != nil {
 		writeServiceErr(w, err)
 		return
 	}

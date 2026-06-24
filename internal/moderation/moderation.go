@@ -22,6 +22,8 @@ type Repo interface {
 	SuspendUser(ctx context.Context, id string) error
 	ActivateUser(ctx context.Context, id string) error
 	RevokeAllSessions(ctx context.Context, id string) error
+	GrantInstructor(ctx context.Context, id string) error
+	RevokeInstructor(ctx context.Context, id string) error
 }
 
 // Service performs moderator account actions.
@@ -60,4 +62,18 @@ func (s *Service) Reinstate(ctx context.Context, claims *contracts.AccessTokenCl
 		return ErrCannotReinstate
 	}
 	return nil
+}
+
+// SetInstructor grants or revokes a user's can_instruct capability. Caller must
+// be a platform moderator. This is the override path (the self-serve apply,
+// gated on eKYC, lives in auth); revocation lets a moderator de-list a bad
+// instructor. The change takes effect on the target's next token refresh.
+func (s *Service) SetInstructor(ctx context.Context, claims *contracts.AccessTokenClaims, targetID string, grant bool) error {
+	if !claims.HasCapability(contracts.CapPlatformModerator) {
+		return ErrForbidden
+	}
+	if grant {
+		return s.repo.GrantInstructor(ctx, targetID)
+	}
+	return s.repo.RevokeInstructor(ctx, targetID)
 }
