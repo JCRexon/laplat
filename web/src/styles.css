@@ -1,0 +1,225 @@
+:root {
+  --bg: #0b0f17;
+  --card: #141a24;
+  --line: #232c3a;
+  --text: #e6eaf0;
+  --muted: #8b97a8;
+  --accent: #6366f1;
+  --error: #f87171;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.topbar nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.topbar nav a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.topbar nav a:hover {
+  color: var(--text);
+}
+
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.content {
+  flex: 1;
+  padding: 1.5rem;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.card.narrow {
+  max-width: 380px;
+  margin: 3rem auto;
+}
+
+.stack > * + * {
+  margin-top: 1.25rem;
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.4rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.center {
+  text-align: center;
+  margin-top: 3rem;
+}
+
+.error {
+  color: var(--error);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.spread {
+  justify-content: space-between;
+}
+
+input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  margin: 0.5rem 0;
+  background: #0e131c;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+button {
+  padding: 0.55rem 1rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.link-btn {
+  background: none;
+  color: var(--muted);
+  padding: 0.25rem 0;
+}
+
+.btn-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: white;
+  white-space: nowrap;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.list > li {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.ladder {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+}
+
+.rung {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+  opacity: 0.6;
+}
+
+.rung.done {
+  opacity: 1;
+  border-color: #1f3a2a;
+}
+
+.rung.next {
+  opacity: 1;
+  border-color: var(--accent);
+}
+
+.rung-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.check {
+  font-weight: 700;
+}
+
+.subflow {
+  margin-top: 0.75rem;
+}
+
+.room {
+  position: fixed;
+  inset: 0;
+  background: black;
+}
