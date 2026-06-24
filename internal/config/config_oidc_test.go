@@ -50,6 +50,32 @@ func TestLoad_GoogleConfigured(t *testing.T) {
 	}
 }
 
+func TestLoad_ZaloConfigured(t *testing.T) {
+	env := baseEnv()
+	env[EnvOIDCRedirectBase] = "https://laplat.example"
+	env[EnvZaloAppID] = "zapp"
+	env[EnvZaloAppSecret] = "zsecret"
+	cfg, err := Load(getenvFrom(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OIDC.Zalo == nil || cfg.OIDC.Zalo.AppID != "zapp" {
+		t.Fatalf("zalo not parsed: %+v", cfg.OIDC.Zalo)
+	}
+	if !cfg.OIDC.Enabled() {
+		t.Fatal("OIDC should be enabled with Zalo")
+	}
+}
+
+func TestLoad_ZaloPartialRejected(t *testing.T) {
+	env := baseEnv()
+	env[EnvOIDCRedirectBase] = "https://x"
+	env[EnvZaloAppID] = "zapp" // secret missing
+	if _, err := Load(getenvFrom(env)); err == nil {
+		t.Fatal("expected error for partial Zalo config")
+	}
+}
+
 func TestLoad_AppleConfiguredDecodesKey(t *testing.T) {
 	env := baseEnv()
 	env[EnvOIDCRedirectBase] = "https://laplat.example"
