@@ -43,31 +43,34 @@ type PhoneStore interface {
 // Decree 147 interaction floor. Reaching the phone_verified tier also requires
 // the 18+ self-attestation; the token mapping enforces that.
 type PhoneLogin struct {
-	store    PhoneStore
-	sessions *Service
-	sender   SMSSender
+	store  PhoneStore
+	authn  *Authenticator
+	sender SMSSender
 
-	Now       func() time.Time
-	NewID     func() string
-	NewCode   func() string
-	NewUserID func() string
-	NewHandle func() string
+	Now     func() time.Time
+	NewID   func() string
+	NewCode func() string
 }
 
-// NewPhoneLogin wires the phone-OTP service.
+// NewPhoneLogin wires the phone-OTP service. Linkage and session issuance go
+// through the Authenticator (the phone LinkResolver is registered here), so this
+// flow owns only the OTP transport.
 func NewPhoneLogin(st PhoneStore, sessions *Service, sender SMSSender) (*PhoneLogin, error) {
 	if st == nil || sessions == nil || sender == nil {
 		return nil, errors.New("auth: phone login requires store, sessions, and sender")
 	}
+	authn, err := NewAuthenticator(sessions)
+	if err != nil {
+		return nil, err
+	}
+	authn.Register(PrincipalPhone, NewPhoneResolver(st))
 	return &PhoneLogin{
-		store:     st,
-		sessions:  sessions,
-		sender:    sender,
-		Now:       time.Now,
-		NewID:     newOpaqueID,
-		NewCode:   newNumericCode,
-		NewUserID: newOpaqueID,
-		NewHandle: newHandle,
+		store:   st,
+		authn:   authn,
+		sender:  sender,
+		Now:     time.Now,
+		NewID:   newOpaqueID,
+		NewCode: newNumericCode,
 	}, nil
 }
 
@@ -119,51 +122,7 @@ func (p *PhoneLogin) VerifyCode(ctx context.Context, rawPhone, code, currentUser
 		return Session{}, err
 	}
 
-	userID, err := p.resolveUser(ctx, phone, currentUserID)
-	if err != nil {
-		return Session{}, err
-	}
-	return p.sessions.IssueSession(ctx, userID)
-}
-
-// resolveUser binds the phone and returns the owning user id.
-func (p *PhoneLogin) resolveUser(ctx context.Context, phone, currentUserID string) (string, error) {
-	existing, err := p.store.GetPhoneIdentity(ctx, phone)
-	switch {
-	case err == nil:
-		// Phone already bound. If a different user is logged in, refuse.
-		if currentUserID != "" && currentUserID != existing.UserID {
-			return "", ErrPhoneConflict
-		}
-		_ = p.store.TouchPhoneLogin(ctx, phone)
-		return existing.UserID, nil
-	case !errors.Is(err, pgx.ErrNoRows):
-		return "", err
-	}
-
-	// Phone not yet bound.
-	if currentUserID != "" {
-		// Authenticated upgrade: attach the phone to the caller's account.
-		if err := p.store.LinkPhoneIdentity(ctx, phone, currentUserID); err != nil {
-			return "", err
-		}
-		return currentUserID, nil
-	}
-
-	// Phone-first signup: new pending user.
-	userID := p.NewUserID()
-	if _, err := p.store.CreateUser(ctx, store.NewUser{
-		ID: userID, Handle: p.NewHandle(), DisplayName: "New User",
-	}); err != nil {
-		return "", err
-	}
-	if err := p.store.CreateIdentityRecord(ctx, userID); err != nil {
-		return "", err
-	}
-	if err := p.store.LinkPhoneIdentity(ctx, phone, userID); err != nil {
-		return "", err
-	}
-	return userID, nil
+	return p.authn.Authenticate(ctx, Principal{Kind: PrincipalPhone, Subject: phone}, currentUserID)
 }
 
 // normalizeE164 validates a phone into E.164 ("+" then 8–15 digits), stripping
