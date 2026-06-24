@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/jcrexon/laplat/internal/audit"
 	"github.com/jcrexon/laplat/internal/auth"
 	"github.com/jcrexon/laplat/internal/dbtest"
 	"github.com/jcrexon/laplat/internal/store"
@@ -42,7 +43,16 @@ func setup(t *testing.T) harness {
 		t.Fatalf("pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	st := store.New(pool)
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auditSigner, err := audit.NewSigner("kid-1", priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(pool, store.WithAuditSigner(auditSigner))
 
 	if _, err := st.CreateUser(ctx, store.NewUser{ID: testUser, Handle: "teacher", DisplayName: "T", CanInstruct: true}); err != nil {
 		t.Fatal(err)
@@ -57,10 +67,6 @@ func setup(t *testing.T) harness {
 		t.Fatal(err)
 	}
 
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
 	signer, err := token.NewSigner("kid-1", priv)
 	if err != nil {
 		t.Fatal(err)

@@ -30,7 +30,7 @@ type SessionRepo interface {
 	UpdateProfile(ctx context.Context, id, handle, displayName, bio string) error
 	CloseAccount(ctx context.Context, id string) error
 	RevokeAllSessions(ctx context.Context, id string) error
-	GrantInstructor(ctx context.Context, id string) error
+	SetInstructorAudited(ctx context.Context, in store.AuditInput, grant bool) error
 	GetIdentity(ctx context.Context, userID string) (store.Identity, error)
 	HasAdultAttestation(ctx context.Context, userID string) (bool, error)
 	HasVerifiedPhone(ctx context.Context, userID string) (bool, error)

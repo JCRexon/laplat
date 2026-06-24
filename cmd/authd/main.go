@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/jcrexon/laplat/internal/audit"
 	"github.com/jcrexon/laplat/internal/auth"
 	"github.com/jcrexon/laplat/internal/class"
 	"github.com/jcrexon/laplat/internal/config"
@@ -61,7 +62,11 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	st := store.New(pool)
+	auditSigner, err := audit.NewSigner(cfg.Kid, cfg.SigningKey)
+	if err != nil {
+		return err
+	}
+	st := store.New(pool, store.WithAuditSigner(auditSigner))
 	signer, err := token.NewSigner(cfg.Kid, cfg.SigningKey)
 	if err != nil {
 		return err
