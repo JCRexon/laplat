@@ -59,5 +59,13 @@ func (s *Service) BecomeInstructor(ctx context.Context, claims *contracts.Access
 	if !claims.IsVerifiedAdult() {
 		return ErrNotVerified
 	}
-	return s.repo.GrantInstructor(ctx, claims.Subject)
+	// Self-grant: actor and target are the same subject, recorded as a distinct
+	// action (self_granted) so the trail distinguishes it from a moderator grant.
+	return s.repo.SetInstructorAudited(ctx, store.AuditInput{
+		ActorID:    claims.Subject,
+		ActorRole:  contracts.AuditRoleSelf,
+		Action:     contracts.ActionInstructorSelfGrant,
+		TargetType: "user",
+		TargetID:   claims.Subject,
+	}, true)
 }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 )
 
@@ -17,13 +18,13 @@ var (
 	ErrCannotReinstate = errors.New("moderation: cannot reinstate (no verified-adult identity)")
 )
 
-// Repo is the persistence the service needs (*store.Store satisfies it).
+// Repo is the persistence the service needs (*store.Store satisfies it). Every
+// method records its action to the audit log in the same transaction as the
+// mutation, so a moderator action never lands without its trail.
 type Repo interface {
-	SuspendUser(ctx context.Context, id string) error
-	ActivateUser(ctx context.Context, id string) error
-	RevokeAllSessions(ctx context.Context, id string) error
-	GrantInstructor(ctx context.Context, id string) error
-	RevokeInstructor(ctx context.Context, id string) error
+	SuspendUserAudited(ctx context.Context, in store.AuditInput) error
+	ReinstateUserAudited(ctx context.Context, in store.AuditInput) error
+	SetInstructorAudited(ctx context.Context, in store.AuditInput, grant bool) error
 }
 
 // Service performs moderator account actions.
@@ -45,10 +46,13 @@ func (s *Service) Suspend(ctx context.Context, claims *contracts.AccessTokenClai
 	if !claims.HasCapability(contracts.CapPlatformModerator) {
 		return ErrForbidden
 	}
-	if err := s.repo.SuspendUser(ctx, targetID); err != nil {
-		return err
-	}
-	return s.repo.RevokeAllSessions(ctx, targetID)
+	return s.repo.SuspendUserAudited(ctx, store.AuditInput{
+		ActorID:    claims.Subject,
+		ActorRole:  contracts.AuditRoleModerator,
+		Action:     contracts.ActionUserSuspended,
+		TargetType: "user",
+		TargetID:   targetID,
+	})
 }
 
 // Reinstate returns a suspended account to active. The DB still requires a
@@ -58,7 +62,13 @@ func (s *Service) Reinstate(ctx context.Context, claims *contracts.AccessTokenCl
 	if !claims.HasCapability(contracts.CapPlatformModerator) {
 		return ErrForbidden
 	}
-	if err := s.repo.ActivateUser(ctx, targetID); err != nil {
+	if err := s.repo.ReinstateUserAudited(ctx, store.AuditInput{
+		ActorID:    claims.Subject,
+		ActorRole:  contracts.AuditRoleModerator,
+		Action:     contracts.ActionUserReinstated,
+		TargetType: "user",
+		TargetID:   targetID,
+	}); err != nil {
 		return ErrCannotReinstate
 	}
 	return nil
@@ -72,8 +82,15 @@ func (s *Service) SetInstructor(ctx context.Context, claims *contracts.AccessTok
 	if !claims.HasCapability(contracts.CapPlatformModerator) {
 		return ErrForbidden
 	}
+	action := contracts.ActionInstructorRevoked
 	if grant {
-		return s.repo.GrantInstructor(ctx, targetID)
+		action = contracts.ActionInstructorGranted
 	}
-	return s.repo.RevokeInstructor(ctx, targetID)
+	return s.repo.SetInstructorAudited(ctx, store.AuditInput{
+		ActorID:    claims.Subject,
+		ActorRole:  contracts.AuditRoleModerator,
+		Action:     action,
+		TargetType: "user",
+		TargetID:   targetID,
+	}, grant)
 }

@@ -4,11 +4,14 @@ package moderation_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/jcrexon/laplat/internal/audit"
 	"github.com/jcrexon/laplat/internal/dbtest"
 	"github.com/jcrexon/laplat/internal/moderation"
 	"github.com/jcrexon/laplat/internal/store"
@@ -24,7 +27,15 @@ func newSvc(t *testing.T) (*moderation.Service, *store.Store, context.Context) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	st := store.New(pool)
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auditSigner, err := audit.NewSigner("kid-1", priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := store.New(pool, store.WithAuditSigner(auditSigner))
 	svc, err := moderation.NewService(st)
 	if err != nil {
 		t.Fatal(err)

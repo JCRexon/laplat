@@ -31,11 +31,34 @@ var (
 type Store struct {
 	pool *pgxpool.Pool
 	q    *sqlcdb.Queries
+
+	auditSigner AuditSigner
+	auditClock  func() time.Time
+}
+
+// AuditSigner signs an audit entry hash; the store stamps the key id into each
+// row for rotation-safe verification. *audit.Signer satisfies it.
+type AuditSigner interface {
+	KeyID() string
+	Sign(hash []byte) []byte
+}
+
+// Option configures a Store at construction.
+type Option func(*Store)
+
+// WithAuditSigner enables the audited mutation methods by supplying the signer
+// for the audit chain. Without it, audited methods return ErrNoAuditSigner.
+func WithAuditSigner(s AuditSigner) Option {
+	return func(st *Store) { st.auditSigner = s }
 }
 
 // New wraps a pgx pool. The caller owns the pool's lifecycle.
-func New(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool, q: sqlcdb.New(pool)}
+func New(pool *pgxpool.Pool, opts ...Option) *Store {
+	st := &Store{pool: pool, q: sqlcdb.New(pool), auditClock: time.Now}
+	for _, opt := range opts {
+		opt(st)
+	}
+	return st
 }
 
 // Store satisfies the token validator's revocation dependency (A-5).
