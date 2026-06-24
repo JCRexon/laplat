@@ -166,6 +166,38 @@ func TestLoad_SMSRejectsBadConfig(t *testing.T) {
 	}
 }
 
+func TestLoad_LiveKit(t *testing.T) {
+	t.Run("disabled by default", func(t *testing.T) {
+		cfg, err := Load(getenvFrom(baseEnv()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.LiveKit != nil {
+			t.Fatal("LiveKit should be nil with no env")
+		}
+	})
+	t.Run("full", func(t *testing.T) {
+		env := baseEnv()
+		env[EnvLiveKitAPIKey] = "k"
+		env[EnvLiveKitAPISecret] = "s"
+		env[EnvLiveKitURL] = "wss://media.example"
+		cfg, err := Load(getenvFrom(env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.LiveKit == nil || cfg.LiveKit.URL != "wss://media.example" {
+			t.Fatalf("livekit not parsed: %+v", cfg.LiveKit)
+		}
+	})
+	t.Run("partial errors", func(t *testing.T) {
+		env := baseEnv()
+		env[EnvLiveKitAPIKey] = "k" // secret + url missing
+		if _, err := Load(getenvFrom(env)); err == nil {
+			t.Fatal("expected error for partial LiveKit config")
+		}
+	})
+}
+
 func TestLoad_OIDCRejectsPartialAndMissingRedirect(t *testing.T) {
 	cases := []struct {
 		name string

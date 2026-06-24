@@ -19,10 +19,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jcrexon/laplat/internal/auth"
+	"github.com/jcrexon/laplat/internal/class"
 	"github.com/jcrexon/laplat/internal/config"
 	"github.com/jcrexon/laplat/internal/emailsend"
 	"github.com/jcrexon/laplat/internal/httpx"
 	"github.com/jcrexon/laplat/internal/identity"
+	"github.com/jcrexon/laplat/internal/livekit"
+	"github.com/jcrexon/laplat/internal/session"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -121,10 +124,39 @@ func run(log *slog.Logger) error {
 		log.Info("phone-otp login enabled", "provider", cfg.SMS.Provider)
 	}
 
+	// Compose the API: auth at "/", class management always, and live sessions
+	// when LiveKit is configured.
+	apiMux := http.NewServeMux()
+	apiMux.Handle("/", handler)
+
+	classSvc, err := class.NewService(st)
+	if err != nil {
+		return err
+	}
+	classHandler := class.NewHandler(classSvc, validator)
+	apiMux.Handle("/v1/classes", classHandler)
+	apiMux.Handle("/v1/classes/", classHandler)
+
+	if cfg.LiveKit != nil {
+		granter, err := livekit.NewGranter(cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, 10*time.Minute)
+		if err != nil {
+			return err
+		}
+		sessionSvc, err := session.NewService(st, granter, cfg.LiveKit.URL)
+		if err != nil {
+			return err
+		}
+		sessionHandler := session.NewHandler(sessionSvc, validator)
+		apiMux.Handle("/v1/sessions", sessionHandler)  // exact (create)
+		apiMux.Handle("/v1/sessions/", sessionHandler) // subtree (join/start/end/leave)
+		log.Info("live sessions enabled", "url", cfg.LiveKit.URL)
+	}
+	var api http.Handler = apiMux
+
 	// Rate-limit the API per client IP, but NOT the health probes (k8s must
 	// always reach them). Then wrap everything in request-id/logging/recovery.
 	limiter := httpx.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
-	limitedAPI := limiter.Limit(handler)
+	limitedAPI := limiter.Limit(api)
 	root := httpx.Chain(rootHandler(limitedAPI, pool),
 		httpx.RequestID,      // outermost: id available to logging + responses
 		httpx.AccessLog(log), // record every response (incl. 429/500)

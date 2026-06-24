@@ -8,6 +8,15 @@ import (
 	"time"
 )
 
+type Class struct {
+	ID           string
+	InstructorID string
+	Title        string
+	Description  string
+	Status       string
+	CreatedAt    time.Time
+}
+
 type EmailIdentity struct {
 	Email     string
 	UserID    string

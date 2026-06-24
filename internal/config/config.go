@@ -55,6 +55,11 @@ const (
 	EnvSMSTwilioAuthToken = "LAPLAT_SMS_TWILIO_AUTH_TOKEN"
 	EnvSMSVonageKey       = "LAPLAT_SMS_VONAGE_API_KEY"
 	EnvSMSVonageSecret    = "LAPLAT_SMS_VONAGE_API_SECRET"
+
+	// Live sessions / LiveKit (optional). Enabled when all three are present.
+	EnvLiveKitAPIKey    = "LAPLAT_LIVEKIT_API_KEY"
+	EnvLiveKitAPISecret = "LAPLAT_LIVEKIT_API_SECRET"
+	EnvLiveKitURL       = "LAPLAT_LIVEKIT_URL" // wss://... media server
 )
 
 // Defaults.
@@ -78,8 +83,16 @@ type Config struct {
 	RateLimitRPS   float64
 	RateLimitBurst int
 	OIDC           OIDCConfig
-	SMTP           *SMTPConfig // nil unless email-OTP login is configured
-	SMS            *SMSConfig  // nil unless phone-OTP login is configured
+	SMTP           *SMTPConfig    // nil unless email-OTP login is configured
+	SMS            *SMSConfig     // nil unless phone-OTP login is configured
+	LiveKit        *LiveKitConfig // nil unless live sessions are configured
+}
+
+// LiveKitConfig is the (optional) live-session media configuration.
+type LiveKitConfig struct {
+	APIKey    string
+	APISecret string
+	URL       string
 }
 
 // SMTPConfig is the (optional) email-OTP transport configuration.
@@ -193,7 +206,25 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.SMS, err = parseSMS(getenv); err != nil {
 		return Config{}, err
 	}
+	if cfg.LiveKit, err = parseLiveKit(getenv); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// parseLiveKit reads the optional live-session config. Enabled when any of the
+// three vars is set; all three are then required.
+func parseLiveKit(getenv func(string) string) (*LiveKitConfig, error) {
+	key := strings.TrimSpace(getenv(EnvLiveKitAPIKey))
+	secret := strings.TrimSpace(getenv(EnvLiveKitAPISecret))
+	url := strings.TrimSpace(getenv(EnvLiveKitURL))
+	if key == "" && secret == "" && url == "" {
+		return nil, nil // live sessions disabled
+	}
+	if key == "" || secret == "" || url == "" {
+		return nil, fmt.Errorf("config: live sessions need %s, %s and %s", EnvLiveKitAPIKey, EnvLiveKitAPISecret, EnvLiveKitURL)
+	}
+	return &LiveKitConfig{APIKey: key, APISecret: secret, URL: url}, nil
 }
 
 // parseSMS reads the optional phone-OTP config. Enabled when LAPLAT_SMS_PROVIDER

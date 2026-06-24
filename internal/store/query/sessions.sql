@@ -26,6 +26,13 @@ VALUES ($1, $2, $3);
 UPDATE session_participants SET left_at = now()
 WHERE session_id = $1 AND user_id = $2 AND left_at IS NULL;
 
+-- name: ListSessionsByClass :many
+-- A class's sessions for discovery: soonest-scheduled first, then newest.
+SELECT id, kind, class_id, livekit_room, status, scheduled_start, started_at, ended_at, created_at
+FROM sessions WHERE class_id = $1
+ORDER BY scheduled_start ASC NULLS LAST, created_at DESC
+LIMIT 100;
+
 -- name: ListActiveParticipants :many
 SELECT session_id, user_id, role, joined_at, left_at
 FROM session_participants
