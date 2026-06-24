@@ -122,12 +122,29 @@ svc.RegisterSignalSource(biometricSource)   // the snap-in entry point
 policy. `identityState()` is kept as a thin wrapper over the policy so its
 behavior table-test still proves the mapping unchanged.
 
-### Brick 3 — reference tables, not `CHECK` enums (schema) — *planned*
+### Brick 3 — reference tables, not `CHECK` enums (schema) — *implemented (providers)*
 
-Replace `provider IN (...)` and `verification_status IN (...)` CHECKs with FK'd
-reference tables, so registering a brick is a *data insert*, not a *migration*.
+Replace value-list `CHECK`s with FK'd reference tables, so registering a value is
+a *data insert*, not a constraint `ALTER` plus a hardcoded Go allowlist edit.
 (Trade-off: CHECKs are airtight; reference tables are extensible — for a snap-in
 goal, FK'd tables win while preserving integrity.)
+
+Done for the federated-login providers — the canonical weld:
+
+- `auth_providers` reference table (`migrations/00012`), seeded with
+  google/apple/zalo, with `federated_identities.provider` now a **foreign key**
+  to it instead of `CHECK (provider IN (...))`.
+- The hardcoded `allowedProviders` map is gone from `federation.go`. The valid
+  set is data: `store.ListAuthProviders` reads it, and `buildFederation`
+  validates configured connectors against it at startup (fail-fast), while the FK
+  enforces it at write time.
+- Adding a provider is now: `INSERT INTO auth_providers` + configure a connector
+  — no constraint migration, no Go allowlist edit.
+
+The `verification_status IN (...)` enum is left as a CHECK for now: Brick 2 made
+assurance signals an open set in Go, and that column is read by the
+adult-activation and downgrade **triggers** (which compare literal values), so
+converting it is higher-risk and lower-value. Noted, not done.
 
 ## Worked example: adding biometrics
 
@@ -160,5 +177,6 @@ passing.
 - **Brick 1 (`Principal` + resolver registry):** implemented — unifies the
   terminal half of the three login flows; endpoints stay independent.
 - **Brick 2 (assurance policy + signal registry):** implemented.
-- **Brick 3 (reference tables):** planned — replace the `allowedProviders` map +
-  `CHECK` constraints so a new provider/signal is a data insert, not a migration.
+- **Brick 3 (reference tables):** implemented for federated-login providers
+  (`auth_providers` + FK, replacing the `allowedProviders` map + `CHECK`). The
+  `verification_status` enum is intentionally left as a CHECK (trigger-coupled).
