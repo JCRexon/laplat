@@ -53,31 +53,34 @@ type EmailStore interface {
 // email, which is safe here because this factor itself proves mailbox control
 // (contrast OIDC, which must never trust an IdP-asserted email).
 type EmailLogin struct {
-	store    EmailStore
-	sessions *Service
-	sender   CodeSender
+	store  EmailStore
+	authn  *Authenticator
+	sender CodeSender
 
-	Now       func() time.Time
-	NewID     func() string // challenge id
-	NewCode   func() string // 6-digit code
-	NewUserID func() string
-	NewHandle func() string
+	Now     func() time.Time
+	NewID   func() string // challenge id
+	NewCode func() string // 6-digit code
 }
 
-// NewEmailLogin wires the email-OTP service.
+// NewEmailLogin wires the email-OTP service. Linkage and session issuance go
+// through the Authenticator (the email LinkResolver is registered here), so this
+// flow owns only the OTP transport.
 func NewEmailLogin(st EmailStore, sessions *Service, sender CodeSender) (*EmailLogin, error) {
 	if st == nil || sessions == nil || sender == nil {
 		return nil, errors.New("auth: email login requires store, sessions, and sender")
 	}
+	authn, err := NewAuthenticator(sessions)
+	if err != nil {
+		return nil, err
+	}
+	authn.Register(PrincipalEmail, NewEmailResolver(st))
 	return &EmailLogin{
-		store:     st,
-		sessions:  sessions,
-		sender:    sender,
-		Now:       time.Now,
-		NewID:     newOpaqueID,
-		NewCode:   newNumericCode,
-		NewUserID: newOpaqueID,
-		NewHandle: newHandle,
+		store:   st,
+		authn:   authn,
+		sender:  sender,
+		Now:     time.Now,
+		NewID:   newOpaqueID,
+		NewCode: newNumericCode,
 	}, nil
 }
 
@@ -132,37 +135,7 @@ func (e *EmailLogin) VerifyCode(ctx context.Context, rawEmail, code string) (Ses
 	if err := e.store.ConsumeLoginChallenge(ctx, ch.ID); err != nil {
 		return Session{}, err
 	}
-	userID, err := e.resolveUser(ctx, email)
-	if err != nil {
-		return Session{}, err
-	}
-	return e.sessions.IssueSession(ctx, userID)
-}
-
-// resolveUser finds the user linked to the email or creates a new pending one.
-func (e *EmailLogin) resolveUser(ctx context.Context, email string) (string, error) {
-	id, err := e.store.GetEmailIdentity(ctx, email)
-	if err == nil {
-		_ = e.store.TouchEmailLogin(ctx, email)
-		return id.UserID, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return "", err
-	}
-
-	userID := e.NewUserID()
-	if _, err := e.store.CreateUser(ctx, store.NewUser{
-		ID: userID, Handle: e.NewHandle(), DisplayName: "New User",
-	}); err != nil {
-		return "", err
-	}
-	if err := e.store.CreateIdentityRecord(ctx, userID); err != nil {
-		return "", err
-	}
-	if err := e.store.LinkEmailIdentity(ctx, email, userID); err != nil {
-		return "", err
-	}
-	return userID, nil
+	return e.authn.Authenticate(ctx, Principal{Kind: PrincipalEmail, Subject: email}, "")
 }
 
 // normalizeEmail validates and lowercases an email for stable linkage.

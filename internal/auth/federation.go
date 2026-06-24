@@ -6,8 +6,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/jcrexon/laplat/internal/oidc"
 	"github.com/jcrexon/laplat/internal/store"
 )
@@ -176,15 +174,13 @@ type FederationStore interface {
 // by email.
 type Federation struct {
 	connectors map[string]Connector
-	store      FederationStore
-	sessions   *Service
-
-	NewUserID func() string
-	NewHandle func() string
+	authn      *Authenticator
 }
 
 // NewFederation validates and wires the connectors. Provider keys must be in the
-// federated_identities CHECK set (google/apple/zalo).
+// federated_identities CHECK set (google/apple/zalo). Linkage and session
+// issuance go through the Authenticator (the federated LinkResolver is
+// registered here), so this flow owns only the redirect/callback mechanics.
 func NewFederation(st FederationStore, sessions *Service, connectors map[string]Connector) (*Federation, error) {
 	if st == nil || sessions == nil {
 		return nil, errors.New("auth: federation requires store and sessions")
@@ -197,13 +193,12 @@ func NewFederation(st FederationStore, sessions *Service, connectors map[string]
 			return nil, errors.New("auth: federation connector nil for " + name)
 		}
 	}
-	return &Federation{
-		connectors: connectors,
-		store:      st,
-		sessions:   sessions,
-		NewUserID:  newOpaqueID,
-		NewHandle:  newHandle,
-	}, nil
+	authn, err := NewAuthenticator(sessions)
+	if err != nil {
+		return nil, err
+	}
+	authn.Register(PrincipalFederated, NewFederatedResolver(st))
+	return &Federation{connectors: connectors, authn: authn}, nil
 }
 
 // Binding returns the provider's binding kind (and whether it is configured),
@@ -237,38 +232,8 @@ func (f *Federation) Complete(ctx context.Context, provider, code, secret string
 	if err != nil || subject == "" {
 		return Session{}, ErrUnauthenticated
 	}
-	userID, err := f.resolveUser(ctx, provider, subject)
-	if err != nil {
-		return Session{}, err
-	}
-	return f.sessions.IssueSession(ctx, userID)
-}
-
-// resolveUser finds the user linked to (provider, subject) or creates a new
-// pending one and links it.
-func (f *Federation) resolveUser(ctx context.Context, provider, subject string) (string, error) {
-	fed, err := f.store.GetFederatedIdentity(ctx, provider, subject)
-	if err == nil {
-		_ = f.store.TouchFederatedLogin(ctx, provider, subject)
-		return fed.UserID, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return "", err
-	}
-
-	userID := f.NewUserID()
-	if _, err := f.store.CreateUser(ctx, store.NewUser{
-		ID: userID, Handle: f.NewHandle(), DisplayName: "New User",
-	}); err != nil {
-		return "", err
-	}
-	if err := f.store.CreateIdentityRecord(ctx, userID); err != nil {
-		return "", err
-	}
-	if err := f.store.LinkFederatedIdentity(ctx, provider, subject, userID); err != nil {
-		return "", err
-	}
-	return userID, nil
+	return f.authn.Authenticate(ctx,
+		Principal{Kind: PrincipalFederated, Provider: provider, Subject: subject}, "")
 }
 
 // newHandle returns a random, unique-by-construction handle satisfying the

@@ -39,24 +39,51 @@ of an existing kind, which the `Connector` port already handled cleanly):
 
 ## The three bricks
 
-### Brick 1 — `AuthMethod` registry (authentication axis) — *planned*
+### Brick 1 — `Principal` + resolver registry (authentication axis) — *implemented*
 
-A uniform interface every login mechanism implements, registered by name and
-served by generic routes (`/v1/auth/{method}/begin|complete`):
+The earlier sketch was a single `AuthMethod{Begin,Complete}` interface behind
+generic `/v1/auth/{method}/begin|complete` routes. **We deliberately did not
+build that**, because it would *increase* coupling, not reduce it:
+
+- A generic begin/complete forces every method through **one shared
+  request/response shape and one endpoint pair**. Bend that shape once (e.g. to
+  fit OAuth's redirect) and every method — email, phone, future passkey — is
+  coupled to the change. A single fat interface that N implementations must all
+  satisfy is tight coupling by definition.
+- OAuth's callback is a **provider-initiated GET redirect**, not a client-driven
+  `POST /complete`. Forcing it into a uniform `Complete` produces optional-field-
+  heavy DTOs and a fake "complete" that doesn't match how OAuth returns.
+
+So the endpoints stay **independent** (OTP keeps its POST `/request`+`/verify`,
+federation keeps its GET `/start`+`/callback`). What we unified is the part that
+was genuinely duplicated and genuinely common — the terminal step — behind a
+narrow contract each method depends on without knowing the others:
 
 ```go
-type AuthMethod interface {
-    Name() string
-    Begin(ctx, BeginRequest) (BeginResponse, error)    // send OTP / build redirect / WebAuthn challenge
-    Complete(ctx, CompleteRequest) (Principal, error)  // verify → proven external identity
+// internal/auth/authn.go
+type Principal struct { Kind PrincipalKind; Provider, Subject string } // proven external identity
+
+type LinkResolver interface {                       // resolve-or-create the local user
+    Resolve(ctx, p Principal, currentUserID string) (userID string, err error)
 }
+
+type Authenticator struct{ /* sessions + resolver registry */ }
+func (a *Authenticator) Register(kind PrincipalKind, r LinkResolver)
+func (a *Authenticator) Authenticate(ctx, p Principal, currentUserID string) (Session, error)
 ```
 
-`Principal{Kind, Subject}` is the proven external identity — `(google, sub)`,
-`(phone, e164)`, `(passkey, credID)` — which the existing user-resolution +
-`IssueSession` path consumes unchanged. The three current flows collapse into
-implementations; a new login factor is one impl + one registry entry, no new
-routes.
+Each flow now produces a `Principal` and calls `Authenticate`, which routes to
+the resolver registered for that kind and issues the session. The three
+`resolveUser` copies became `emailResolver` / `phoneResolver` /
+`federatedResolver` (with the shared `newPendingUser` helper), and `Authenticate`
+is the single home of the `IssueSession` dependency.
+
+**Coupling result:** a method depends only on `Principal` + `Authenticate` — a
+small, stable contract — never on another method or a shared DTO. A new login
+factor (passkey/WebAuthn, biometric unlock) is *its own* thin transport that
+produces a `Principal`, plus one `LinkResolver` + one `Register` call. Nothing
+existing changes. `currentUserID` carries the one real divergence (phone's
+authenticated-upgrade case) without leaking into the others.
 
 ### Brick 2 — assurance as data, not branches (assurance axis) — *implemented*
 
@@ -130,6 +157,8 @@ passing.
 
 ## Status
 
+- **Brick 1 (`Principal` + resolver registry):** implemented — unifies the
+  terminal half of the three login flows; endpoints stay independent.
 - **Brick 2 (assurance policy + signal registry):** implemented.
-- **Brick 1 (`AuthMethod` registry):** planned — unifies the three login flows.
-- **Brick 3 (reference tables):** planned — alongside Brick 1.
+- **Brick 3 (reference tables):** planned — replace the `allowedProviders` map +
+  `CHECK` constraints so a new provider/signal is a data insert, not a migration.
