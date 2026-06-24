@@ -21,14 +21,20 @@ const (
 // none < declared < phone_verified < verified, and gate progressively riskier
 // actions:
 //
-//	none           browse only (no attestation)
-//	declared       self-attested 18+ — general features, watch recordings
+//	none           browse the catalog and free recordings (no attestation)
+//	declared       self-attested 18+ — general features
 //	phone_verified declared + a verified phone (Decree 147 interaction floor) —
 //	               live sessions, 1:1 calls, posting/publishing
 //	verified       eKYC-verified adult (national ID) — commercial livestream, payments
 //
 // "pending" is orthogonal: an eKYC check is in flight. A user keeps their
 // existing (declared/phone_verified) tier while a verification is pending.
+//
+// These tiers gate the discovery funnel, NOT owned content. A PURCHASED
+// recording is entitlement-gated (you own it), never tier-gated: the buyer
+// cleared the verified tier to pay, so attestation is already subsumed, and the
+// entitlement is durable across a later downgrade. Only FREE recordings sit on
+// this ladder (at the none floor).
 type IdentityVerificationState string
 
 const (
