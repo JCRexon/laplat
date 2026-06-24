@@ -198,6 +198,34 @@ func TestLoad_LiveKit(t *testing.T) {
 	})
 }
 
+func TestLoad_EKYC(t *testing.T) {
+	t.Run("disabled by default", func(t *testing.T) {
+		cfg, _ := Load(getenvFrom(baseEnv()))
+		if cfg.EKYC != nil {
+			t.Fatal("eKYC should be nil by default")
+		}
+	})
+	t.Run("full", func(t *testing.T) {
+		env := baseEnv()
+		env[EnvEKYCVendorURL] = "https://kyc.example/create"
+		env[EnvEKYCWebhookSecret] = "whsecret"
+		cfg, err := Load(getenvFrom(env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.EKYC == nil || cfg.EKYC.WebhookSecret != "whsecret" {
+			t.Fatalf("eKYC not parsed: %+v", cfg.EKYC)
+		}
+	})
+	t.Run("partial errors", func(t *testing.T) {
+		env := baseEnv()
+		env[EnvEKYCVendorURL] = "https://kyc.example/create" // secret missing
+		if _, err := Load(getenvFrom(env)); err == nil {
+			t.Fatal("expected error for partial eKYC config")
+		}
+	})
+}
+
 func TestLoad_OIDCRejectsPartialAndMissingRedirect(t *testing.T) {
 	cases := []struct {
 		name string

@@ -51,7 +51,7 @@ func TestHTTP_ToSAccept_GrantsDeclaredTier(t *testing.T) {
 	idSvc, _ := identity.NewService(st, map[string]identity.Verifier{"default": identity.ManualVerifier{}})
 
 	h := auth.NewHandler(svc, validator)
-	h.RegisterIdentity(idSvc)
+	h.RegisterIdentity(idSvc, nil)
 
 	// A pending user can hold a session (idv none) before declaring.
 	sess, err := svc.IssueSession(ctx, uid)
