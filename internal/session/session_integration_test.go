@@ -175,6 +175,29 @@ func TestSession_ScheduleAndDiscover(t *testing.T) {
 	}
 }
 
+// Detail returns the session and its participants for a declared user, and is
+// refused at the none tier.
+func TestSession_Detail(t *testing.T) {
+	svc, st, ctx := newSvc(t)
+	host := mkUser(t, st, ctx, "host5", contracts.IdentityPhoneVerified, contracts.CapCanInstruct)
+	classID := mkClass(t, st, ctx, "class-5", "host5")
+	sess, _ := svc.CreateSession(ctx, host, "class", &classID, nil)
+
+	viewer := mkUser(t, st, ctx, "viewer5", contracts.IdentityDeclared)
+	got, parts, err := svc.Detail(ctx, viewer, sess.ID)
+	if err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if got.ID != sess.ID || len(parts) != 1 || parts[0].Role != session.RoleHost {
+		t.Fatalf("detail = %+v parts=%+v", got, parts)
+	}
+
+	none := mkUser(t, st, ctx, "none5", contracts.IdentityNone)
+	if _, _, err := svc.Detail(ctx, none, sess.ID); err != session.ErrForbidden {
+		t.Fatalf("none-tier detail err = %v, want ErrForbidden", err)
+	}
+}
+
 // In a direct (1:1) session both peers publish, and the DB caps occupancy at two.
 func TestSession_DirectPublishAndCap(t *testing.T) {
 	svc, st, ctx := newSvc(t)
