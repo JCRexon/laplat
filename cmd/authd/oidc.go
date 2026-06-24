@@ -6,10 +6,10 @@ import (
 	"github.com/jcrexon/laplat/internal/oidc"
 	"github.com/jcrexon/laplat/internal/oidcprov"
 	"github.com/jcrexon/laplat/internal/store"
+	"github.com/jcrexon/laplat/internal/zalo"
 )
 
-// Pinned provider endpoints (issuer, authorize, JWKS). These are protocol
-// constants, not operator configuration.
+// Pinned provider endpoints. Protocol constants, not operator configuration.
 const (
 	googleIssuer  = "https://accounts.google.com"
 	googleAuthURL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -18,61 +18,68 @@ const (
 	appleIssuer  = "https://appleid.apple.com"
 	appleAuthURL = "https://appleid.apple.com/auth/authorize"
 	appleJWKSURL = "https://appleid.apple.com/auth/keys"
+
+	zaloAuthURL = "https://oauth.zaloapp.com/v4/permission"
 )
 
-// buildFederation wires the configured OIDC providers into an auth.Federation,
-// or returns (nil, nil) when no provider is configured. Each provider gets a
-// cached remote JWKS verifier and a real token-endpoint exchanger.
+// buildFederation wires the configured federated-login providers into an
+// auth.Federation, or returns (nil, nil) when none is configured. Google/Apple
+// are OIDC connectors (cached remote JWKS verifier + token exchanger); Zalo is
+// an OAuth2+PKCE connector (token exchange + userinfo).
 func buildFederation(cfg config.Config, st *store.Store, svc *auth.Service) (*auth.Federation, error) {
 	oc := cfg.OIDC
 	if !oc.Enabled() {
 		return nil, nil
 	}
-	providers := map[string]*auth.OIDCProvider{}
+	connectors := map[string]auth.Connector{}
 
 	if g := oc.Google; g != nil {
-		providers["google"] = &auth.OIDCProvider{
-			Verifier: &oidc.Provider{
-				Name:     "google",
-				Issuer:   googleIssuer,
-				Audience: g.ClientID,
-				Keys:     oidc.NewRemoteKeySet(googleJWKSURL, nil),
-			},
-			Exchanger:   oidcprov.NewGoogle(g.ClientID, g.ClientSecret, nil),
-			AuthURL:     googleAuthURL,
-			ClientID:    g.ClientID,
-			RedirectURL: oc.RedirectBase + "/v1/auth/oidc/google/callback",
-			Scopes:      []string{"openid", "email"},
+		conn, err := auth.NewOIDCConnector(
+			&oidc.Provider{Name: "google", Issuer: googleIssuer, Audience: g.ClientID, Keys: oidc.NewRemoteKeySet(googleJWKSURL, nil)},
+			oidcprov.NewGoogle(g.ClientID, g.ClientSecret, nil),
+			googleAuthURL, g.ClientID, oc.RedirectBase+"/v1/auth/oidc/google/callback",
+			[]string{"openid", "email"},
+		)
+		if err != nil {
+			return nil, err
 		}
+		connectors["google"] = conn
 	}
 
 	if a := oc.Apple; a != nil {
 		exch, err := oidcprov.NewApple(oidcprov.AppleConfig{
-			ClientID:   a.ClientID,
-			TeamID:     a.TeamID,
-			KeyID:      a.KeyID,
-			PrivateKey: a.PrivateKey,
+			ClientID: a.ClientID, TeamID: a.TeamID, KeyID: a.KeyID, PrivateKey: a.PrivateKey,
 		}, nil)
 		if err != nil {
 			return nil, err
 		}
-		providers["apple"] = &auth.OIDCProvider{
-			Verifier: &oidc.Provider{
-				Name:     "apple",
-				Issuer:   appleIssuer,
-				Audience: a.ClientID,
-				Keys:     oidc.NewRemoteKeySet(appleJWKSURL, nil),
-			},
-			Exchanger:   exch,
-			AuthURL:     appleAuthURL,
-			ClientID:    a.ClientID,
-			RedirectURL: oc.RedirectBase + "/v1/auth/oidc/apple/callback",
-			// openid only: requesting name/email would make Apple use
-			// response_mode=form_post (a POST callback). We link by subject, never
-			// email, so the minimal scope keeps the GET callback uniform.
-			Scopes: []string{"openid"},
+		// openid only: name/email would make Apple use response_mode=form_post (a
+		// POST callback). We link by subject, never email.
+		conn, err := auth.NewOIDCConnector(
+			&oidc.Provider{Name: "apple", Issuer: appleIssuer, Audience: a.ClientID, Keys: oidc.NewRemoteKeySet(appleJWKSURL, nil)},
+			exch, appleAuthURL, a.ClientID, oc.RedirectBase+"/v1/auth/oidc/apple/callback",
+			[]string{"openid"},
+		)
+		if err != nil {
+			return nil, err
 		}
+		connectors["apple"] = conn
 	}
 
-	return auth.NewFederation(st, svc, providers)
+	if z := oc.Zalo; z != nil {
+		exch, err := zalo.NewExchanger(z.AppID, z.AppSecret, nil)
+		if err != nil {
+			return nil, err
+		}
+		conn, err := auth.NewZaloConnector(
+			exch, zalo.NewUserInfo(nil),
+			zaloAuthURL, z.AppID, oc.RedirectBase+"/v1/auth/oidc/zalo/callback",
+		)
+		if err != nil {
+			return nil, err
+		}
+		connectors["zalo"] = conn
+	}
+
+	return auth.NewFederation(st, svc, connectors)
 }

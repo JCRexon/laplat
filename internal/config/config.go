@@ -37,6 +37,8 @@ const (
 	EnvAppleTeamID        = "LAPLAT_OIDC_APPLE_TEAM_ID"
 	EnvAppleKeyID         = "LAPLAT_OIDC_APPLE_KEY_ID"
 	EnvApplePrivateKeyB64 = "LAPLAT_OIDC_APPLE_PRIVATE_KEY" // base64 of the .p8 PEM
+	EnvZaloAppID          = "LAPLAT_OIDC_ZALO_APP_ID"
+	EnvZaloAppSecret      = "LAPLAT_OIDC_ZALO_APP_SECRET"
 
 	// Email-OTP login (optional). Enabled when host/port/from are all present.
 	EnvSMTPHost     = "LAPLAT_SMTP_HOST"
@@ -145,10 +147,17 @@ type OIDCConfig struct {
 	RedirectBase string      // base URL the providers redirect back to
 	Google       *GoogleOIDC // nil unless configured
 	Apple        *AppleOIDC  // nil unless configured
+	Zalo         *ZaloOIDC   // nil unless configured (OAuth2, not OIDC)
 }
 
 // Enabled reports whether any provider is configured.
-func (o OIDCConfig) Enabled() bool { return o.Google != nil || o.Apple != nil }
+func (o OIDCConfig) Enabled() bool { return o.Google != nil || o.Apple != nil || o.Zalo != nil }
+
+// ZaloOIDC is the Zalo app credentials. Zalo Login is OAuth 2.0 + PKCE.
+type ZaloOIDC struct {
+	AppID     string
+	AppSecret string
+}
 
 // GoogleOIDC is the Google client credentials.
 type GoogleOIDC struct {
@@ -347,6 +356,15 @@ func parseOIDC(getenv func(string) string) (OIDCConfig, error) {
 			return OIDCConfig{}, fmt.Errorf("%s: not valid base64: %w", EnvApplePrivateKeyB64, err)
 		}
 		oc.Apple = &AppleOIDC{ClientID: aID, TeamID: aTeam, KeyID: aKey, PrivateKey: pem}
+	}
+
+	zID := strings.TrimSpace(getenv(EnvZaloAppID))
+	zSecret := strings.TrimSpace(getenv(EnvZaloAppSecret))
+	if zID != "" || zSecret != "" {
+		if zID == "" || zSecret == "" {
+			return OIDCConfig{}, fmt.Errorf("config: zalo needs both %s and %s", EnvZaloAppID, EnvZaloAppSecret)
+		}
+		oc.Zalo = &ZaloOIDC{AppID: zID, AppSecret: zSecret}
 	}
 
 	if oc.Enabled() && oc.RedirectBase == "" {

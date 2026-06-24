@@ -37,6 +37,157 @@ func (f *fakeExchanger) Exchange(_ context.Context, _, _ string) (string, error)
 	return f.token, nil
 }
 
+// googleConnector builds an OIDC connector verifying against the given keys and
+// exchanging to a preset id token.
+func googleConnector(t *testing.T, idToken string, keys oidc.KeySet) auth.Connector {
+	t.Helper()
+	c, err := auth.NewOIDCConnector(
+		&oidc.Provider{Name: "google", Issuer: "https://accounts.google.com", Audience: "client-abc", Keys: keys},
+		&fakeExchanger{token: idToken},
+		"https://accounts.google.com/o/oauth2/v2/auth",
+		"client-abc",
+		"https://laplat.test/v1/auth/oidc/google/callback",
+		[]string{"openid", "email"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// fakeZaloExchanger / fakeZaloUserInfo stand in for Zalo's token + userinfo
+// endpoints (OAuth2, no id_token).
+type fakeZaloExchanger struct{ token string }
+
+func (f *fakeZaloExchanger) Exchange(_ context.Context, _, _, _ string) (string, error) {
+	return f.token, nil
+}
+
+type fakeZaloUserInfo struct{ subject string }
+
+func (f *fakeZaloUserInfo) Subject(_ context.Context, _ string) (string, error) {
+	return f.subject, nil
+}
+
+func zaloConnector(t *testing.T, subject string) auth.Connector {
+	t.Helper()
+	c, err := auth.NewZaloConnector(
+		&fakeZaloExchanger{token: "AT-1"}, &fakeZaloUserInfo{subject: subject},
+		"https://oauth.zaloapp.com/v4/permission", "app-1",
+		"https://laplat.test/v1/auth/oidc/zalo/callback",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// A Zalo login resolves the userinfo subject, creates a pending user linked
+// under provider "zalo", and reuses it on repeat login.
+func TestFederation_Zalo_Complete(t *testing.T) {
+	pg := dbtest.New(t)
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, pg.ConnString())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	st := store.New(pool)
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer, _ := token.NewSigner("kid-1", priv)
+	minter, _ := auth.NewMinter(signer, contracts.TokenIssuer, 15*time.Minute)
+	svc, _ := auth.NewService(minter, st, 720*time.Hour)
+	fed, err := auth.NewFederation(st, svc, map[string]auth.Connector{"zalo": zaloConnector(t, "zalo-sub-1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sess, err := fed.Complete(ctx, "zalo", "code", "verifier")
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	uid := sess.AccessClaims.Subject
+	if u, _ := st.GetUser(ctx, uid); u.Status != "pending" {
+		t.Fatalf("status = %q, want pending", u.Status)
+	}
+	if sess.AccessClaims.IdentityVerification != contracts.IdentityNone {
+		t.Fatalf("idv = %q, want none (Zalo is a login factor, not eKYC)", sess.AccessClaims.IdentityVerification)
+	}
+	link, err := st.GetFederatedIdentity(ctx, "zalo", "zalo-sub-1")
+	if err != nil || link.UserID != uid {
+		t.Fatalf("zalo link not stored: %v / %q", err, link.UserID)
+	}
+
+	sess2, _ := fed.Complete(ctx, "zalo", "code", "verifier")
+	if sess2.AccessClaims.Subject != uid {
+		t.Fatalf("repeat zalo login made a new user")
+	}
+}
+
+// Full Zalo PKCE HTTP flow: start emits an S256 code_challenge and sets the
+// binding cookie; the callback returns a session.
+func TestHTTP_Zalo_PKCEStartThenCallback(t *testing.T) {
+	pg := dbtest.New(t)
+	ctx := context.Background()
+	pool, _ := pgxpool.New(ctx, pg.ConnString())
+	t.Cleanup(pool.Close)
+	st := store.New(pool)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	signer, _ := token.NewSigner("kid-1", priv)
+	minter, _ := auth.NewMinter(signer, contracts.TokenIssuer, 15*time.Minute)
+	validator := token.NewValidator(token.NewVerifier(map[string]ed25519.PublicKey{"kid-1": pub}), st)
+	svc, _ := auth.NewService(minter, st, 720*time.Hour)
+	fed, _ := auth.NewFederation(st, svc, map[string]auth.Connector{"zalo": zaloConnector(t, "zalo-http-1")})
+	h := auth.NewHandler(svc, validator)
+	h.RegisterOIDC(fed)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	client := srv.Client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Get(srv.URL + "/v1/auth/oidc/zalo/start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("start status = %d, want 302", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "code_challenge=") || !strings.Contains(loc, "code_challenge_method=S256") || !strings.Contains(loc, "app_id=app-1") {
+		t.Fatalf("zalo authorize URL missing PKCE params: %s", loc)
+	}
+	var state, secret string
+	for _, c := range resp.Cookies() {
+		switch c.Name {
+		case "laplat_oidc_state":
+			state = c.Value
+		case "laplat_oidc_secret":
+			secret = c.Value
+		}
+	}
+	if state == "" || secret == "" {
+		t.Fatal("start did not set state/secret cookies")
+	}
+
+	req, _ := http.NewRequest("GET", srv.URL+"/v1/auth/oidc/zalo/callback?code=x&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: "laplat_oidc_state", Value: state})
+	req.AddCookie(&http.Cookie{Name: "laplat_oidc_secret", Value: secret})
+	ok, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ok.Body.Close()
+	if ok.StatusCode != http.StatusOK {
+		t.Fatalf("zalo callback status = %d, want 200", ok.StatusCode)
+	}
+	var body map[string]any
+	_ = json.NewDecoder(ok.Body).Decode(&body)
+	if body["accessToken"] == nil {
+		t.Fatalf("zalo callback returned no session: %v", body)
+	}
+}
+
 // rsaIDToken builds and signs a Google-style RS256 ID token, and a JWKS doc for
 // the matching public key.
 func rsaIDToken(t *testing.T, sub, nonce string) (idToken string, jwks []byte) {
@@ -99,15 +250,9 @@ func newFedHarness(t *testing.T, idToken string, jwks []byte) fedHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := &auth.OIDCProvider{
-		Verifier:    &oidc.Provider{Name: "google", Issuer: "https://accounts.google.com", Audience: "client-abc", Keys: keys},
-		Exchanger:   &fakeExchanger{token: idToken},
-		AuthURL:     "https://accounts.google.com/o/oauth2/v2/auth",
-		ClientID:    "client-abc",
-		RedirectURL: "https://laplat.test/v1/auth/oidc/google/callback",
-		Scopes:      []string{"openid", "email"},
-	}
-	fed, err := auth.NewFederation(st, svc, map[string]*auth.OIDCProvider{"google": provider})
+	fed, err := auth.NewFederation(st, svc, map[string]auth.Connector{
+		"google": googleConnector(t, idToken, keys),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +330,7 @@ func TestHTTP_OIDC_StartThenCallback(t *testing.T) {
 		switch c.Name {
 		case "laplat_oidc_state":
 			state = c.Value
-		case "laplat_oidc_nonce":
+		case "laplat_oidc_secret":
 			nonce = c.Value
 		}
 	}
@@ -223,7 +368,7 @@ func TestHTTP_OIDC_StartThenCallback(t *testing.T) {
 	// Matching state + nonce -> 200 with a session.
 	req2, _ := http.NewRequest("GET", srv2.URL+"/v1/auth/oidc/google/callback?code=x&state=S", nil)
 	req2.AddCookie(&http.Cookie{Name: "laplat_oidc_state", Value: "S"})
-	req2.AddCookie(&http.Cookie{Name: "laplat_oidc_nonce", Value: nonce})
+	req2.AddCookie(&http.Cookie{Name: "laplat_oidc_secret", Value: nonce})
 	ok, err := srv2.Client().Do(req2)
 	if err != nil {
 		t.Fatal(err)
@@ -256,15 +401,9 @@ func startCallbackServer(t *testing.T, idToken string, keys oidc.KeySet) *httpte
 	minter, _ := auth.NewMinter(signer, contracts.TokenIssuer, 15*time.Minute)
 	validator := token.NewValidator(token.NewVerifier(map[string]ed25519.PublicKey{"kid-1": pub}), st)
 	svc, _ := auth.NewService(minter, st, 720*time.Hour)
-	provider := &auth.OIDCProvider{
-		Verifier:    &oidc.Provider{Name: "google", Issuer: "https://accounts.google.com", Audience: "client-abc", Keys: keys},
-		Exchanger:   &fakeExchanger{token: idToken},
-		AuthURL:     "https://accounts.google.com/o/oauth2/v2/auth",
-		ClientID:    "client-abc",
-		RedirectURL: "https://laplat.test/cb",
-		Scopes:      []string{"openid", "email"},
-	}
-	fed, _ := auth.NewFederation(st, svc, map[string]*auth.OIDCProvider{"google": provider})
+	fed, _ := auth.NewFederation(st, svc, map[string]auth.Connector{
+		"google": googleConnector(t, idToken, keys),
+	})
 	h := auth.NewHandler(svc, validator)
 	h.RegisterOIDC(fed)
 	srv := httptest.NewServer(h)
