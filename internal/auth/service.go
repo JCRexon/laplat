@@ -52,6 +52,12 @@ type Service struct {
 	repo       SessionRepo
 	refreshTTL time.Duration
 
+	// policy maps held assurance signals to a tier; signalSources contribute
+	// signals from additional mechanisms (the built-in signals ride on data mint
+	// already reads). Both are extension seams — see AUTH-EXTENSIBILITY.md.
+	policy        assurancePolicy
+	signalSources []SignalSource
+
 	// Overridable for tests.
 	Now       func() time.Time
 	newID     func() string
@@ -73,10 +79,19 @@ func NewService(minter *Minter, repo SessionRepo, refreshTTL time.Duration) (*Se
 		minter:     minter,
 		repo:       repo,
 		refreshTTL: refreshTTL,
+		policy:     defaultAssurancePolicy,
 		Now:        time.Now,
 		newID:      newOpaqueID,
 		newSecret:  newRefreshSecret,
 	}, nil
+}
+
+// RegisterSignalSource adds an assurance signal source. This is the snap-in
+// entry point for a new assurance mechanism (e.g. biometric liveness): the
+// source emits its signal and a policy row consumes it, with no change to mint()
+// or the built-in derivation. See AUTH-EXTENSIBILITY.md (Brick 2).
+func (s *Service) RegisterSignalSource(src SignalSource) {
+	s.signalSources = append(s.signalSources, src)
 }
 
 // Session is the pair returned to a client. The refresh token's raw value is
@@ -191,8 +206,15 @@ func (s *Service) mint(ctx context.Context, user store.User, identity store.Iden
 	if err != nil {
 		return Session{}, err
 	}
+	// Built-in signals derive from data already in hand (no extra reads); any
+	// registered sources contribute additional signals. The policy maps the held
+	// set to the tier.
+	held := builtinSignals(identity.VerificationStatus, declaredAdult, phoneVerified)
+	if err := gatherInto(ctx, held, s.signalSources, user.ID); err != nil {
+		return Session{}, err
+	}
 	access, claims, err := s.minter.MintAccess(user.ID, tv,
-		identityState(identity, declaredAdult, phoneVerified), capabilities(user))
+		s.policy.Tier(held), capabilities(user))
 	if err != nil {
 		return Session{}, err
 	}
@@ -204,26 +226,14 @@ func (s *Service) mint(ctx context.Context, user store.User, identity store.Iden
 	}, nil
 }
 
-// identityState maps DB state to the assurance tier in the claim, ordered
-// verified > phone_verified > declared > pending > none. eKYC ("verified")
-// outranks everything; "phone_verified" requires BOTH a verified phone and the
-// 18+ self-attestation (a phone binding alone proves identity-control, not
-// adulthood — so it does not by itself lift the tier above none/declared). A
-// user keeps their tier while an eKYC check is pending (never a downgrade).
+// identityState maps the built-in assurance facts to a tier via the default
+// policy. It is the pure, source-free derivation (verified > phone_verified >
+// declared > pending > none); mint() additionally unions any registered signal
+// sources. Retained as a named helper so the behavior table-test guards the
+// mapping directly.
 func identityState(id store.Identity, declaredAdult, phoneVerified bool) contracts.IdentityVerificationState {
-	if id.VerificationStatus == string(contracts.IdentityVerified) {
-		return contracts.IdentityVerified
-	}
-	if phoneVerified && declaredAdult {
-		return contracts.IdentityPhoneVerified
-	}
-	if declaredAdult {
-		return contracts.IdentityDeclared
-	}
-	if id.VerificationStatus == string(contracts.IdentityPending) {
-		return contracts.IdentityPending
-	}
-	return contracts.IdentityNone
+	return defaultAssurancePolicy.Tier(
+		builtinSignals(id.VerificationStatus, declaredAdult, phoneVerified))
 }
 
 // capabilities derives global capabilities from the user's backing columns
