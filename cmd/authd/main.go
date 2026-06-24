@@ -26,6 +26,7 @@ import (
 	"github.com/jcrexon/laplat/internal/httpx"
 	"github.com/jcrexon/laplat/internal/identity"
 	"github.com/jcrexon/laplat/internal/livekit"
+	"github.com/jcrexon/laplat/internal/moderation"
 	"github.com/jcrexon/laplat/internal/session"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
@@ -155,6 +156,12 @@ func run(log *slog.Logger) error {
 	classHandler := class.NewHandler(classSvc, validator)
 	apiMux.Handle("/v1/classes", classHandler)
 	apiMux.Handle("/v1/classes/", classHandler)
+
+	modSvc, err := moderation.NewService(st)
+	if err != nil {
+		return err
+	}
+	apiMux.Handle("/v1/moderation/", moderation.NewHandler(modSvc, validator))
 
 	if cfg.LiveKit != nil {
 		granter, err := livekit.NewGranter(cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, 10*time.Minute)
