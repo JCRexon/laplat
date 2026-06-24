@@ -141,6 +141,29 @@ func (q *Queries) SuspendUser(ctx context.Context, id string) error {
 	return err
 }
 
+const updateProfile = `-- name: UpdateProfile :exec
+UPDATE users SET handle = $2, display_name = $3, bio = $4 WHERE id = $1
+`
+
+type UpdateProfileParams struct {
+	ID          string
+	Handle      string
+	DisplayName string
+	Bio         *string
+}
+
+// Sets the user-editable profile fields. handle uniqueness is enforced by the
+// lower(handle) unique index (a conflict surfaces as a unique violation).
+func (q *Queries) UpdateProfile(ctx context.Context, arg UpdateProfileParams) error {
+	_, err := q.db.Exec(ctx, updateProfile,
+		arg.ID,
+		arg.Handle,
+		arg.DisplayName,
+		arg.Bio,
+	)
+	return err
+}
+
 const userExists = `-- name: UserExists :one
 SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)
 `

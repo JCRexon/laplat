@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/jcrexon/laplat/internal/store/sqlcdb"
 )
@@ -46,6 +49,26 @@ func (s *Store) CreateUser(ctx context.Context, u NewUser) (User, error) {
 // GetUser fetches a user by id.
 func (s *Store) GetUser(ctx context.Context, id string) (User, error) {
 	return s.q.GetUser(ctx, id)
+}
+
+// ErrHandleTaken means the requested handle is already in use (case-insensitive).
+var ErrHandleTaken = errors.New("store: handle already taken")
+
+// UpdateProfile sets the user-editable fields, mapping a handle collision to
+// ErrHandleTaken.
+func (s *Store) UpdateProfile(ctx context.Context, id, handle, displayName, bio string) error {
+	var bioPtr *string
+	if bio != "" {
+		bioPtr = &bio
+	}
+	err := s.q.UpdateProfile(ctx, sqlcdb.UpdateProfileParams{
+		ID: id, Handle: handle, DisplayName: displayName, Bio: bioPtr,
+	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+		return ErrHandleTaken
+	}
+	return err
 }
 
 // UserExists reports whether a user id is present.
