@@ -104,6 +104,24 @@ func (s *Store) SoftDeleteUser(ctx context.Context, id string) error {
 	return s.q.SoftDeleteUser(ctx, id)
 }
 
+// CloseAccount is self-service erasure: soft-delete plus revoke-all in one
+// atomic statement (outstanding access tokens stop validating immediately).
+func (s *Store) CloseAccount(ctx context.Context, id string) error {
+	return s.q.CloseAccount(ctx, id)
+}
+
+// RevokeAllSessions logs a user out everywhere: it revokes every live refresh
+// token (so none can rotate) and bumps token_version (so every outstanding
+// access token stops validating). Refresh tokens are revoked first so a
+// concurrent rotation cannot outrun the version bump.
+func (s *Store) RevokeAllSessions(ctx context.Context, userID string) error {
+	if err := s.q.RevokeAllRefreshTokens(ctx, userID); err != nil {
+		return err
+	}
+	_, err := s.q.BumpTokenVersion(ctx, userID)
+	return err
+}
+
 // --- identity vault ----------------------------------------------------------
 
 // CreateIdentityRecord establishes the (unverified, non-adult) vault row.

@@ -42,8 +42,10 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h.mux.HandleFunc("POST /v1/token/refresh", h.handleRefresh)
 	// Protected: require a (still-valid) access token to log out / introspect.
 	h.mux.Handle("POST /v1/token/logout", h.requireAuth(http.HandlerFunc(h.handleLogout)))
+	h.mux.Handle("POST /v1/token/logout-all", h.requireAuth(http.HandlerFunc(h.handleLogoutAll)))
 	h.mux.Handle("GET /v1/me", h.requireAuth(http.HandlerFunc(h.handleMe)))
 	h.mux.Handle("PATCH /v1/me", h.requireAuth(http.HandlerFunc(h.handleUpdateProfile)))
+	h.mux.Handle("DELETE /v1/me", h.requireAuth(http.HandlerFunc(h.handleCloseAccount)))
 	return h
 }
 
@@ -169,6 +171,29 @@ func (h *Handler) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// handleLogoutAll revokes every session for the caller ("log out on all
+// devices") without deleting the account. The presented token is invalid after.
+func (h *Handler) handleLogoutAll(w http.ResponseWriter, r *http.Request) {
+	claims, _ := ClaimsFrom(r.Context())
+	if err := h.svc.LogoutEverywhere(r.Context(), claims.Subject); err != nil {
+		writeError(w, http.StatusInternalServerError, "logout-all failed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleCloseAccount is self-service account erasure: it soft-deletes the
+// caller's account and revokes all their tokens (the presented token is invalid
+// thereafter).
+func (h *Handler) handleCloseAccount(w http.ResponseWriter, r *http.Request) {
+	claims, _ := ClaimsFrom(r.Context())
+	if err := h.svc.CloseAccount(r.Context(), claims.Subject); err != nil {
+		writeError(w, http.StatusInternalServerError, "could not close account")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- helpers -----------------------------------------------------------------

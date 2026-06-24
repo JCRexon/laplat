@@ -21,6 +21,9 @@ type Querier interface {
 	// Revoke-all for a user: every outstanding access token (tver < new) is now
 	// superseded. Returns the new version.
 	BumpTokenVersion(ctx context.Context, id string) (int32, error)
+	// Self-service erasure: soft-delete AND revoke-all (bump token_version) in one
+	// atomic statement, so outstanding access tokens stop validating immediately.
+	CloseAccount(ctx context.Context, id string) error
 	ConsumeLoginChallenge(ctx context.Context, id string) error
 	ConsumePhoneChallenge(ctx context.Context, id string) error
 	// Classes: instructor course definitions.
@@ -93,6 +96,8 @@ type Querier interface {
 	RemoveParticipant(ctx context.Context, arg RemoveParticipantParams) error
 	// Single-token revocation: denylist a jti until its natural expiry. Idempotent.
 	RevokeAccessToken(ctx context.Context, arg RevokeAccessTokenParams) error
+	// Revoke every live refresh token for a user (used by "log out everywhere").
+	RevokeAllRefreshTokens(ctx context.Context, userID string) error
 	// Reverses verification (e.g. eKYC reversal, fraud finding). Defence in depth:
 	// a trigger demotes any active user whose identity is revoked this way.
 	RevokeIdentityVerification(ctx context.Context, userID string) error

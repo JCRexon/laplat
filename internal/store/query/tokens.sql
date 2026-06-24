@@ -21,3 +21,8 @@ SELECT token_version FROM users WHERE id = $1;
 UPDATE users SET token_version = token_version + 1
 WHERE id = $1
 RETURNING token_version;
+
+-- name: RevokeAllRefreshTokens :exec
+-- Revoke every live refresh token for a user (used by "log out everywhere").
+UPDATE refresh_tokens SET revoked_at = now()
+WHERE user_id = $1 AND revoked_at IS NULL;

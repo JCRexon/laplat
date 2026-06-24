@@ -68,3 +68,14 @@ func (q *Queries) RevokeAccessToken(ctx context.Context, arg RevokeAccessTokenPa
 	_, err := q.db.Exec(ctx, revokeAccessToken, arg.Jti, arg.ExpiresAt)
 	return err
 }
+
+const revokeAllRefreshTokens = `-- name: RevokeAllRefreshTokens :exec
+UPDATE refresh_tokens SET revoked_at = now()
+WHERE user_id = $1 AND revoked_at IS NULL
+`
+
+// Revoke every live refresh token for a user (used by "log out everywhere").
+func (q *Queries) RevokeAllRefreshTokens(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, revokeAllRefreshTokens, userID)
+	return err
+}
