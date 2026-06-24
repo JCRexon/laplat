@@ -92,3 +92,29 @@ func TestModeration_SuspendReinstate(t *testing.T) {
 		t.Fatalf("status after reinstate = %q, want active", u.Status)
 	}
 }
+
+// A moderator can grant and revoke the instructor capability; a non-moderator
+// cannot.
+func TestModeration_SetInstructor(t *testing.T) {
+	svc, st, ctx := newSvc(t)
+	mkActiveAdult(t, st, ctx, "mod")
+	mkActiveAdult(t, st, ctx, "target")
+
+	if err := svc.SetInstructor(ctx, &contracts.AccessTokenClaims{Subject: "x"}, "target", true); err != moderation.ErrForbidden {
+		t.Fatalf("non-mod grant = %v, want ErrForbidden", err)
+	}
+
+	if err := svc.SetInstructor(ctx, modClaims("mod"), "target", true); err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+	if u, _ := st.GetUser(ctx, "target"); !u.CanInstruct {
+		t.Fatal("target should be an instructor after grant")
+	}
+
+	if err := svc.SetInstructor(ctx, modClaims("mod"), "target", false); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if u, _ := st.GetUser(ctx, "target"); u.CanInstruct {
+		t.Fatal("target should not be an instructor after revoke")
+	}
+}
