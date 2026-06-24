@@ -34,6 +34,15 @@ SELECT EXISTS (SELECT 1 FROM users WHERE id = $1);
 -- Operator-only path (adminctl); never reachable from user-facing handlers.
 UPDATE users SET is_platform_moderator = true WHERE id = $1;
 
+-- name: GrantInstructor :exec
+-- Grants the can_instruct capability. Self-serve, but gated on the verified
+-- (eKYC) tier in the service. Idempotent.
+UPDATE users SET can_instruct = true WHERE id = $1;
+
+-- name: RevokeInstructor :exec
+-- Strips the can_instruct capability (moderator action).
+UPDATE users SET can_instruct = false WHERE id = $1;
+
 -- name: SuspendUser :exec
 UPDATE users SET status = 'suspended' WHERE id = $1;
 

@@ -81,6 +81,17 @@ func (s *Store) PromoteToModerator(ctx context.Context, id string) error {
 	return s.q.PromoteToModerator(ctx, id)
 }
 
+// GrantInstructor grants the can_instruct capability (gated on the verified
+// tier in the service). Idempotent.
+func (s *Store) GrantInstructor(ctx context.Context, id string) error {
+	return s.q.GrantInstructor(ctx, id)
+}
+
+// RevokeInstructor strips the can_instruct capability (moderator action).
+func (s *Store) RevokeInstructor(ctx context.Context, id string) error {
+	return s.q.RevokeInstructor(ctx, id)
+}
+
 // GetUserByHandle fetches a live (non-deleted) user by case-insensitive handle.
 func (s *Store) GetUserByHandle(ctx context.Context, handle string) (User, error) {
 	return s.q.GetUserByHandle(ctx, handle)

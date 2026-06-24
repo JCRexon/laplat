@@ -69,6 +69,9 @@ type Querier interface {
 	// Login lookup. Case-insensitive (matches the lower(handle) unique index) and
 	// excludes soft-deleted accounts.
 	GetUserByHandle(ctx context.Context, lower string) (User, error)
+	// Grants the can_instruct capability. Self-serve, but gated on the verified
+	// (eKYC) tier in the service. Idempotent.
+	GrantInstructor(ctx context.Context, id string) error
 	// True if the user has self-attested 18+ under any ToS version.
 	HasAdultAttestation(ctx context.Context, userID string) (bool, error)
 	HasVerifiedPhone(ctx context.Context, userID string) (bool, error)
@@ -101,6 +104,8 @@ type Querier interface {
 	// Reverses verification (e.g. eKYC reversal, fraud finding). Defence in depth:
 	// a trigger demotes any active user whose identity is revoked this way.
 	RevokeIdentityVerification(ctx context.Context, userID string) error
+	// Strips the can_instruct capability (moderator action).
+	RevokeInstructor(ctx context.Context, id string) error
 	// Theft response: revoke every live token in the rotation chain at once.
 	RevokeRefreshFamily(ctx context.Context, familyID string) error
 	// Marks a verification as in-flight when an eKYC session is started.

@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/jcrexon/laplat/internal/store"
+	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/validate"
 )
 
@@ -45,4 +46,18 @@ func (s *Service) CloseAccount(ctx context.Context, userID string) error {
 // outstanding access tokens), without deleting the account.
 func (s *Service) LogoutEverywhere(ctx context.Context, userID string) error {
 	return s.repo.RevokeAllSessions(ctx, userID)
+}
+
+// ErrNotVerified means an action requires the verified (eKYC) tier.
+var ErrNotVerified = errors.New("auth: requires verified identity")
+
+// BecomeInstructor grants the caller the can_instruct capability. It requires
+// the verified (eKYC) tier — instructing is a high-trust action (live contact,
+// content, payments), so a real identity check is the floor. Idempotent. The
+// client must refresh to pick up the capability in a new token.
+func (s *Service) BecomeInstructor(ctx context.Context, claims *contracts.AccessTokenClaims) error {
+	if !claims.IsVerifiedAdult() {
+		return ErrNotVerified
+	}
+	return s.repo.GrantInstructor(ctx, claims.Subject)
 }
