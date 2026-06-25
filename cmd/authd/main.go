@@ -9,9 +9,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -60,7 +60,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
-	
+
 	if err := waitForDB(ctx, log, pool); err != nil {
 		return err
 	}
