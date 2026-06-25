@@ -1,7 +1,6 @@
-import type { Tier } from "./api/types";
+import type { Tier } from "./types";
 
-// The assurance ladder, in order. "pending" is orthogonal (an eKYC check in
-// flight) and is handled separately, not as a rung.
+// The assurance ladder, in order. "pending" is orthogonal (eKYC in flight).
 export const LADDER: Exclude<Tier, "pending">[] = [
   "none",
   "declared",
@@ -17,7 +16,6 @@ export const TIER_LABEL: Record<Tier, string> = {
   pending: "Verification pending",
 };
 
-// What each tier unlocks (mirrors ACCESS-MODEL.md).
 export const TIER_UNLOCKS: Record<Tier, string> = {
   none: "Browse the catalog and free recordings.",
   declared: "General features and class schedules.",
@@ -27,13 +25,19 @@ export const TIER_UNLOCKS: Record<Tier, string> = {
 };
 
 export function rank(t: Tier): number {
-  // pending ranks alongside its underlying tier for gating purposes; treat it
-  // as below declared for "what can I do now" display.
   if (t === "pending") return 0;
   return LADDER.indexOf(t);
 }
 
-// meets reports whether the held tier satisfies a required rung.
 export function meets(held: Tier, required: Exclude<Tier, "pending">): boolean {
   return rank(held) >= LADDER.indexOf(required);
+}
+
+// nextRung returns the first ladder rung the held tier has not yet reached, or
+// null when fully verified.
+export function nextRung(held: Tier): Exclude<Tier, "pending"> | null {
+  for (const r of LADDER) {
+    if (!meets(held, r)) return r;
+  }
+  return null;
 }
