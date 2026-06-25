@@ -23,6 +23,9 @@ services:
     command: ["sh", "-c", "goose -dir /migrations postgres \"$LAPLAT_DB_DSN\" up"]
     environment:
       LAPLAT_DB_DSN: postgres://laplat:laplat@db:5432/laplat?sslmode=disable
+    # nerdctl-compose may not honor health-gated depends_on, so retry until the
+    # DB is actually accepting connections (goose `up` is idempotent).
+    restart: on-failure
     depends_on:
       db:
         condition: service_healthy
@@ -36,6 +39,8 @@ services:
       LAPLAT_TOKEN_SIGNING_KEY: ${LAPLAT_TOKEN_SIGNING_KEY:-pBg48EH9AdNdFjvu1qiSMEicjZrH2YhR4ypuM4DZsn4=}
       LAPLAT_DEV_OTP_CONSOLE: "1"
       LAPLAT_HTTP_ADDR: ":8080"
+    # Retry if it starts before Postgres is ready (startup DB ping fails -> exit).
+    restart: on-failure
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 2s
