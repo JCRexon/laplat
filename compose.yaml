@@ -17,10 +17,8 @@ services:
       timeout: 3s
       retries: 30
 
-  # One-shot: wait for the DB, apply migrations with psql, then exit. The files
-  # are goose-format: feeding the WHOLE file to `psql -f` would also run each
-  # migration's Down (DROP) section and wipe what the Up just created — so we
-  # extract and apply only the Up section (the same way internal/dbtest does).
+  # One-shot: wait for the DB, apply migrations with psql (the goose markers are
+  # SQL comments; we feed only the Up sections), then exit. No goose/Go needed.
   migrate:
     image: postgres:16-alpine
     volumes:
@@ -57,6 +55,8 @@ services:
       LAPLAT_TOKEN_SIGNING_KEY: ${LAPLAT_TOKEN_SIGNING_KEY:-pBg48EH9AdNdFjvu1qiSMEicjZrH2YhR4ypuM4DZsn4=}
       LAPLAT_DEV_OTP_CONSOLE: "1"
       LAPLAT_HTTP_ADDR: ":8080"
+    # Retry if it starts before Postgres is ready (startup DB ping fails -> exit).
+    restart: on-failure
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 2s
