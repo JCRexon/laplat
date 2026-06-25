@@ -83,4 +83,30 @@
   {#if form?.error}
     <p class="error">{form.error}</p>
   {/if}
+
+  <div class="continue">
+    <p class="muted small">
+      Finished declaring for now? You can come back any time to verify further and
+      unlock more.
+    </p>
+    <a class="continue-btn" href="/catalog">Continue to the catalog →</a>
+  </div>
 </div>
+
+<style>
+  .continue {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--line);
+  }
+  .continue-btn {
+    display: inline-block;
+    margin-top: 0.5rem;
+    padding: 0.55rem 1rem;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+  }
+</style>

@@ -46,6 +46,31 @@ services:
       db:
         condition: service_healthy
 
+  # DEV demo data: a fictitious instructor + published classes so the catalog
+  # isn't empty during a walkthrough. Idempotent; waits for the schema. Remove
+  # this service (or the file) for an empty catalog.
+  seed:
+    image: postgres:16-alpine
+    volumes:
+      - ./scripts/seed-demo.sql:/seed.sql:ro
+    environment:
+      PGHOST: db
+      PGUSER: laplat
+      PGPASSWORD: laplat
+      PGDATABASE: laplat
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until [ -n "$$(psql -tAc "SELECT to_regclass('public.classes')")" ]; do
+          echo "waiting for schema..."; sleep 1
+        done
+        psql -v ON_ERROR_STOP=1 -q -f /seed.sql
+        echo "demo data seeded"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   authd:
     build: .
     environment:

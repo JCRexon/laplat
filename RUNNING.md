@@ -22,7 +22,9 @@ Then open **http://localhost:5173**:
    **Catalog**. Phone OTP works the same way.
 
 What the compose runs: `db` (Postgres 16) → `migrate` (applies the migrations
-with `psql`, then exits) → `authd` (`:8080`, dev OTP sender) → `web` (a
+with `psql`, then exits) → `seed` (loads a few demo classes so the catalog isn't
+empty — `scripts/seed-demo.sql`, idempotent) → `authd` (`:8080`, dev OTP sender)
+→ `web` (a
 production SvelteKit build served by `adapter-node`, with `COOKIE_SECURE=false`
 so its httpOnly cookies work over plain `http://localhost`). The web BFF reaches
 `authd` over the internal network; the browser only ever talks to `web`.
