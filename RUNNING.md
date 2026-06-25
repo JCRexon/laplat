@@ -21,8 +21,8 @@ Then open **http://localhost:5173**:
 3. Enter it, then climb the assurance ladder on **My identity** and browse the
    **Catalog**. Phone OTP works the same way.
 
-What the compose runs: `db` (Postgres 16) → `migrate` (goose applies the
-migrations, then exits) → `authd` (`:8080`, dev OTP sender) → `web` (a
+What the compose runs: `db` (Postgres 16) → `migrate` (applies the migrations
+with `psql`, then exits) → `authd` (`:8080`, dev OTP sender) → `web` (a
 production SvelteKit build served by `adapter-node`, with `COOKIE_SECURE=false`
 so its httpOnly cookies work over plain `http://localhost`). The web BFF reaches
 `authd` over the internal network; the browser only ever talks to `web`.
