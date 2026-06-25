@@ -20,7 +20,8 @@ services:
   # One-shot: apply migrations, then exit. authd waits for it to complete.
   migrate:
     build: .
-    command: ["sh", "-c", "goose -dir /migrations postgres \"$$LAPLAT_DB_DSN\" up"]
+    # command: ["sh", "-c", "goose -dir /migrations postgres \"$$LAPLAT_DB_DSN\" up"]
+    command: ["sh", "-c", "for f in /migrations/*.sql; do psql \"$$LAPLAT_DB_DSN\" -f \"$f\" || exit 1; done"] 
     environment:
       LAPLAT_DB_DSN: postgres://laplat:laplat@db:5432/laplat?sslmode=disable
     depends_on:
