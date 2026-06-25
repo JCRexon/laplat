@@ -1,6 +1,9 @@
 package contracts
 
-import "encoding/binary"
+import (
+	"crypto/sha256"
+	"encoding/binary"
+)
 
 // ConsentSchemaVersion versions the canonical encoding of a consent record.
 const ConsentSchemaVersion = 1
@@ -75,4 +78,12 @@ func (c ConsentRecord) SignedPayload() []byte {
 	b = append(b, t[:]...)
 	putField([]byte(c.SigningKeyID))
 	return b
+}
+
+// Hash is the record's chain hash: SHA-256 over its canonical SignedPayload.
+// The next record's PrevHash is this value; the ledger genesis PrevHash is 32
+// zero bytes.
+func (c ConsentRecord) Hash() []byte {
+	h := sha256.Sum256(c.SignedPayload())
+	return h[:]
 }

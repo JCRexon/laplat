@@ -23,6 +23,7 @@ import (
 	"github.com/jcrexon/laplat/internal/auth"
 	"github.com/jcrexon/laplat/internal/class"
 	"github.com/jcrexon/laplat/internal/config"
+	"github.com/jcrexon/laplat/internal/consent"
 	"github.com/jcrexon/laplat/internal/ekyc"
 	"github.com/jcrexon/laplat/internal/emailsend"
 	"github.com/jcrexon/laplat/internal/httpx"
@@ -184,6 +185,12 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	apiMux.Handle("/v1/moderation/", moderation.NewHandler(modSvc, validator))
+
+	consentSvc, err := consent.NewService(st)
+	if err != nil {
+		return err
+	}
+	apiMux.Handle("/v1/consent/", consent.NewHandler(consentSvc, validator))
 
 	if cfg.LiveKit != nil {
 		granter, err := livekit.NewGranter(cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, 10*time.Minute)
