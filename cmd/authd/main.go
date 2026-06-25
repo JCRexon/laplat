@@ -28,6 +28,7 @@ import (
 	"github.com/jcrexon/laplat/internal/identity"
 	"github.com/jcrexon/laplat/internal/livekit"
 	"github.com/jcrexon/laplat/internal/moderation"
+	"github.com/jcrexon/laplat/internal/otpconsole"
 	"github.com/jcrexon/laplat/internal/session"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
@@ -135,6 +136,13 @@ func run(log *slog.Logger) error {
 		}
 		handler.RegisterEmailLogin(el)
 		log.Info("email-otp login enabled", "from", cfg.SMTP.From)
+	} else if cfg.DevOTPConsole {
+		el, err := auth.NewEmailLogin(st, svc, otpconsole.New(log, "email"))
+		if err != nil {
+			return err
+		}
+		handler.RegisterEmailLogin(el)
+		log.Warn("email-otp login enabled with DEV CONSOLE sender — codes are logged, never use in production")
 	}
 	if cfg.SMS != nil {
 		sender, err := buildSMSSender(cfg.SMS)
@@ -147,6 +155,13 @@ func run(log *slog.Logger) error {
 		}
 		handler.RegisterPhoneLogin(pl)
 		log.Info("phone-otp login enabled", "provider", cfg.SMS.Provider)
+	} else if cfg.DevOTPConsole {
+		pl, err := auth.NewPhoneLogin(st, svc, otpconsole.New(log, "sms"))
+		if err != nil {
+			return err
+		}
+		handler.RegisterPhoneLogin(pl)
+		log.Warn("phone-otp login enabled with DEV CONSOLE sender — codes are logged, never use in production")
 	}
 
 	// Compose the API: auth at "/", class management always, and live sessions
