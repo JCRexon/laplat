@@ -17,20 +17,33 @@ services:
       timeout: 3s
       retries: 30
 
-  # One-shot: apply migrations, then exit. authd waits for it to complete.
+  # One-shot: wait for the DB, apply migrations with psql, then exit. The files
+  # are goose-format: feeding the WHOLE file to `psql -f` would also run each
+  # migration's Down (DROP) section and wipe what the Up just created — so we
+  # extract and apply only the Up section (the same way internal/dbtest does).
   migrate:
-    image: postgres:16-alpine   # 🟢 Ensure this is here
+    image: postgres:16-alpine
     volumes:
       - ./migrations:/migrations:ro
-    command: >
-      sh -c "
-      for f in /migrations/*.sql; do
-        echo 'Applying migration: $$f'
-        psql \"$$LAPLAT_DB_DSN\" -f \"$$f\" || exit 1
-      done
-      "
     environment:
-      LAPLAT_DB_DSN: postgres://laplat:laplat@db:5432/laplat?sslmode=disable
+      PGHOST: db
+      PGUSER: laplat
+      PGPASSWORD: laplat
+      PGDATABASE: laplat
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until pg_isready >/dev/null 2>&1; do echo "waiting for db..."; sleep 1; done
+        if [ -n "$$(psql -tAc "SELECT to_regclass('public.users')")" ]; then
+          echo "schema already present; skipping migrations"; exit 0
+        fi
+        for f in /migrations/0*.sql; do
+          echo "applying $$(basename "$$f")"
+          awk '/-- \+goose Up/{u=1;next} /-- \+goose Down/{u=0} u' "$$f" | grep -v '^-- +goose' \
+            | psql -v ON_ERROR_STOP=1 -q
+        done
+        echo "migrations complete"
     depends_on:
       db:
         condition: service_healthy
