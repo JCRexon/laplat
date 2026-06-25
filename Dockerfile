@@ -1,6 +1,6 @@
 # authd image: just the Go service. Migrations are applied by the compose
-# `migrate` service using psql (the postgres image already ships it), so this
-# image carries no migration tooling.
+# 'migrate' service using psql (the postgres image already ships it), so this
+# image carries no migration tooling
 FROM golang:1.25 AS build
 WORKDIR /src
 COPY go.mod go.sum ./

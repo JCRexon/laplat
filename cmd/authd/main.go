@@ -11,6 +11,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -59,7 +60,8 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	defer pool.Close()
-	if err := pool.Ping(ctx); err != nil {
+	
+	if err := waitForDB(ctx, log, pool); err != nil {
 		return err
 	}
 
@@ -237,6 +239,29 @@ func run(log *slog.Logger) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
+	}
+}
+
+// waitForDB pings the pool until it succeeds or a bounded deadline passes. A
+// database that isn't accepting connections yet at startup is a transient,
+// expected condition under orchestration (compose/k8s), not a fatal one.
+func waitForDB(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool) error {
+	const timeout = 30 * time.Second
+	deadline := time.Now().Add(timeout)
+	for attempt := 1; ; attempt++ {
+		err := pool.Ping(ctx)
+		if err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("database not ready after %s: %w", timeout, err)
+		}
+		log.Info("waiting for database to accept connections", "attempt", attempt)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
 	}
 }
 

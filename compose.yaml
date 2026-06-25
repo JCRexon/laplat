@@ -20,9 +20,16 @@ services:
   # One-shot: wait for the DB, apply migrations with psql (the goose markers are
   # SQL comments; we feed only the Up sections), then exit. No goose/Go needed.
   migrate:
-    image: postgres:16-alpine
+    image: postgres:16-alpine   # 🟢 Ensure this is here
     volumes:
       - ./migrations:/migrations:ro
+    command: >
+      sh -c "
+      for f in /migrations/*.sql; do
+        echo 'Applying migration: $$f'
+        psql \"$$LAPLAT_DB_DSN\" -f \"$$f\" || exit 1
+      done
+      "
     environment:
       PGHOST: db
       PGUSER: laplat
