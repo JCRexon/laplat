@@ -109,9 +109,15 @@ Claim helpers (`MeetsAdultDeclaration`, `MeetsPhoneVerification`,
 
 - **Built:** the tier ladder and claim helpers, adult-activation and downgrade
   triggers, class catalog + sessions, instructor onboarding (self-apply +
-  moderator grant/revoke), platform moderation.
+  moderator grant/revoke), platform moderation, the recording-consent ledger
+  ([`internal/consent`](internal/consent) — append-only, signed, with a
+  `RecordingAllowed` gate and a withdrawal that stops recording, D-2), and the
+  recording control plane ([`internal/recording`](internal/recording) — starts
+  LiveKit egress only behind that gate, host-triggered, stop-on-withdrawal).
 - **In review:** Zalo (OAuth) sign-in.
-- **Planned:** payments / entitlements (the gate for paid recordings), recording
-  capture & playback, class enrollment + capacity (a per-class roster, the
-  *other* sense of "members-only" — membership of a class, orthogonal to the
-  assurance tier).
+- **Needs media infra (next):** running a LiveKit + egress server so recordings
+  capture end-to-end, webhook-driven egress status reconciliation, and
+  recording playback/availability.
+- **Planned:** payments / entitlements (the gate for paid recordings), class
+  enrollment + capacity (a per-class roster, the *other* sense of
+  "members-only" — membership of a class, orthogonal to the assurance tier).

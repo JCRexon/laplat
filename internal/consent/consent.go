@@ -30,6 +30,12 @@ type Repo interface {
 type Service struct {
 	repo  Repo
 	newID func() string
+
+	// onChange, if set, is fired (best-effort) after any committed grant or
+	// withdrawal so a recording can be reconciled against the new consent state
+	// — this is how a withdrawal stops an in-flight recording (D-2). The
+	// consent package stays decoupled from recording: the wiring lives in main.
+	onChange func(ctx context.Context, sessionID string)
 }
 
 // NewService wires the repo.
@@ -39,6 +45,11 @@ func NewService(repo Repo) (*Service, error) {
 	}
 	return &Service{repo: repo, newID: newID}, nil
 }
+
+// OnChange registers a hook fired after every committed consent change. It is
+// best-effort (errors are the hook's to handle/log) and must not be relied on
+// for correctness of the ledger itself — only for reacting to it.
+func (s *Service) OnChange(fn func(ctx context.Context, sessionID string)) { s.onChange = fn }
 
 // Grant appends a granted consent for the subject to record the session.
 func (s *Service) Grant(ctx context.Context, subjectID, sessionID string) error {
@@ -51,13 +62,20 @@ func (s *Service) Withdraw(ctx context.Context, subjectID, sessionID string) err
 }
 
 func (s *Service) append(ctx context.Context, subjectID, sessionID string, granted bool) error {
-	return s.repo.AppendConsent(ctx, store.ConsentInput{
+	if err := s.repo.AppendConsent(ctx, store.ConsentInput{
 		ID:        s.newID(),
 		SessionID: sessionID,
 		SubjectID: subjectID,
 		Purpose:   contracts.ConsentPurposeSessionRecording,
 		Granted:   granted,
-	})
+	}); err != nil {
+		return err
+	}
+	// The ledger is committed; react to the new state (D-2 stop-on-withdrawal).
+	if s.onChange != nil {
+		s.onChange(ctx, sessionID)
+	}
+	return nil
 }
 
 // Effective reports the subject's latest recording-consent decision for the

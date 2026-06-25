@@ -62,6 +62,13 @@ const (
 	EnvLiveKitAPIKey    = "LAPLAT_LIVEKIT_API_KEY"
 	EnvLiveKitAPISecret = "LAPLAT_LIVEKIT_API_SECRET"
 	EnvLiveKitURL       = "LAPLAT_LIVEKIT_URL" // wss://... media server
+	// Recording/egress (optional, within live sessions). The egress (Twirp) API
+	// lives on the LiveKit server's HTTP endpoint; if unset it is derived from
+	// EnvLiveKitURL (ws→http, wss→https). The file prefix is where room-composite
+	// recordings are written (a mounted volume for the local stack).
+	EnvLiveKitHTTPURL       = "LAPLAT_LIVEKIT_HTTP_URL"
+	EnvLiveKitFilePrefix    = "LAPLAT_LIVEKIT_FILE_PREFIX"
+	defaultEgressFilePrefix = "/out/"
 
 	// DEV ONLY. When truthy, email/phone OTP login falls back to a console
 	// sender that LOGS the code (no SMTP/SMS vendor needed) — for local
@@ -115,6 +122,11 @@ type LiveKitConfig struct {
 	APIKey    string
 	APISecret string
 	URL       string
+	// HTTPURL is the LiveKit server's HTTP(S) endpoint for the egress API,
+	// derived from URL when not set explicitly. FilePrefix is where egress
+	// writes room recordings.
+	HTTPURL    string
+	FilePrefix string
 }
 
 // SMTPConfig is the (optional) email-OTP transport configuration.
@@ -285,7 +297,31 @@ func parseLiveKit(getenv func(string) string) (*LiveKitConfig, error) {
 	if key == "" || secret == "" || url == "" {
 		return nil, fmt.Errorf("config: live sessions need %s, %s and %s", EnvLiveKitAPIKey, EnvLiveKitAPISecret, EnvLiveKitURL)
 	}
-	return &LiveKitConfig{APIKey: key, APISecret: secret, URL: url}, nil
+	httpURL := strings.TrimSpace(getenv(EnvLiveKitHTTPURL))
+	if httpURL == "" {
+		httpURL = deriveHTTPURL(url)
+	}
+	filePrefix := strings.TrimSpace(getenv(EnvLiveKitFilePrefix))
+	if filePrefix == "" {
+		filePrefix = defaultEgressFilePrefix
+	}
+	return &LiveKitConfig{
+		APIKey: key, APISecret: secret, URL: url,
+		HTTPURL: httpURL, FilePrefix: filePrefix,
+	}, nil
+}
+
+// deriveHTTPURL turns a LiveKit ws(s):// media URL into the http(s):// endpoint
+// that serves the egress API on the same host.
+func deriveHTTPURL(wsURL string) string {
+	switch {
+	case strings.HasPrefix(wsURL, "wss://"):
+		return "https://" + strings.TrimPrefix(wsURL, "wss://")
+	case strings.HasPrefix(wsURL, "ws://"):
+		return "http://" + strings.TrimPrefix(wsURL, "ws://")
+	default:
+		return wsURL
+	}
 }
 
 // parseSMS reads the optional phone-OTP config. Enabled when LAPLAT_SMS_PROVIDER

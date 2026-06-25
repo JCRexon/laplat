@@ -214,6 +214,28 @@ func TestLoad_LiveKit(t *testing.T) {
 		if cfg.LiveKit == nil || cfg.LiveKit.URL != "wss://media.example" {
 			t.Fatalf("livekit not parsed: %+v", cfg.LiveKit)
 		}
+		// Egress HTTP URL is derived from the wss media URL; file prefix defaults.
+		if cfg.LiveKit.HTTPURL != "https://media.example" {
+			t.Fatalf("derived egress url = %q, want https://media.example", cfg.LiveKit.HTTPURL)
+		}
+		if cfg.LiveKit.FilePrefix != "/out/" {
+			t.Fatalf("file prefix = %q, want /out/", cfg.LiveKit.FilePrefix)
+		}
+	})
+	t.Run("egress overrides", func(t *testing.T) {
+		env := baseEnv()
+		env[EnvLiveKitAPIKey] = "k"
+		env[EnvLiveKitAPISecret] = "s"
+		env[EnvLiveKitURL] = "wss://media.example"
+		env[EnvLiveKitHTTPURL] = "http://lk-internal:7880"
+		env[EnvLiveKitFilePrefix] = "/recordings"
+		cfg, err := Load(getenvFrom(env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.LiveKit.HTTPURL != "http://lk-internal:7880" || cfg.LiveKit.FilePrefix != "/recordings" {
+			t.Fatalf("egress overrides not applied: %+v", cfg.LiveKit)
+		}
 	})
 	t.Run("partial errors", func(t *testing.T) {
 		env := baseEnv()
