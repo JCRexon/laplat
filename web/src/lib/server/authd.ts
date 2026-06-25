@@ -1,6 +1,6 @@
 import { env } from "$env/dynamic/private";
 import type { Cookies } from "@sveltejs/kit";
-import type { Session } from "$lib/types";
+import type { Me, Session } from "$lib/types";
 import { accessCookie, clearSession, refreshCookie, setSession } from "./session";
 
 // The authd origin. Server-side only (BFF) — never shipped to the browser.
@@ -34,10 +34,17 @@ function call(path: string, init: Init, token?: string): Promise<Response> {
 async function parse<T>(res: Response): Promise<T> {
   if (res.status === 204) return undefined as T;
   const text = await res.text();
-  const data = text ? JSON.parse(text) : undefined;
+  // Not every authd response is JSON — e.g. a 404 from an unmounted route is
+  // plain text. Parse leniently so a non-JSON body still surfaces as an
+  // ApiError with the right status, not a raw SyntaxError.
+  let data: { error?: string } | undefined;
+  try {
+    data = text ? JSON.parse(text) : undefined;
+  } catch {
+    data = undefined;
+  }
   if (!res.ok) {
-    const msg = (data && (data.error as string)) || res.statusText;
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, data?.error || text || res.statusText);
   }
   return data as T;
 }
@@ -76,6 +83,19 @@ export async function api<T>(cookies: Cookies, path: string, init: Init = {}): P
 // remint forces a token refresh so a just-changed tier shows on the next load.
 export async function remint(cookies: Cookies): Promise<void> {
   await refresh(cookies);
+}
+
+// getMe resolves the signed-in user from the CURRENT cookies (null when signed
+// out). Resolve it in the layout load — not once-per-request in hooks — so a
+// tier climb that re-mints the token mid-action is reflected on the post-action
+// re-render (hooks runs before the action; its locals.me would be stale).
+export async function getMe(cookies: Cookies): Promise<Me | null> {
+  try {
+    return await api<Me>(cookies, "/v1/me");
+  } catch (e) {
+    if (e instanceof ApiError) return null;
+    throw e;
+  }
 }
 
 // --- unauthenticated login steps (set the cookies) ---------------------------

@@ -7,12 +7,14 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "e2e": "bash e2e/run.sh"
   },
   "dependencies": {
     "livekit-client": "^2.6.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.0",
     "@sveltejs/adapter-node": "^5.2.9",
     "@sveltejs/kit": "^2.8.0",
     "@sveltejs/vite-plugin-svelte": "^4.0.0",

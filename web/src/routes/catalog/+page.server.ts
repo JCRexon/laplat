@@ -8,14 +8,16 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 
   const classes = (await api<{ classes: ClassView[] }>(cookies, "/v1/classes/published")).classes ?? [];
 
-  // Listing sessions requires the declared tier; below it authd returns 403.
+  // Listing sessions requires the declared tier (403 below it). The endpoint is
+  // also only mounted when live sessions (LiveKit) are configured, so it can 404
+  // — treat that as "sessions unavailable", not an error.
   let sessions: SessionSummary[] = [];
   let sessionsLocked = false;
   try {
     sessions = (await api<{ sessions: SessionSummary[] }>(cookies, "/v1/sessions")).sessions ?? [];
   } catch (e) {
     if (e instanceof ApiError && e.status === 403) sessionsLocked = true;
-    else throw e;
+    else if (!(e instanceof ApiError && e.status === 404)) throw e;
   }
 
   return { classes, sessions, sessionsLocked };
