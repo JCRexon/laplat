@@ -61,7 +61,7 @@ func run(log *slog.Logger) error {
 	}
 	defer pool.Close()
 	
-	if err := waitFroDB(ctx, log, pool); err != nil {
+	if err := waitForDB(ctx, log, pool); err != nil {
 		return err
 	}
 
