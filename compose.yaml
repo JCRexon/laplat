@@ -1,0 +1,60 @@
+# Local, self-contained dev stack: Postgres + authd (with the dev console OTP
+# sender) + the SvelteKit web client. `docker compose up --build`, then open
+# http://localhost:5173. No Go/Node/Postgres install needed on the host.
+#
+# DEV ONLY. The OTP console sender logs login codes; the signing key has a
+# checked-in default. Never use this compose file for anything real.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: laplat
+      POSTGRES_PASSWORD: laplat
+      POSTGRES_DB: laplat
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U laplat -d laplat"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # One-shot: apply migrations, then exit. authd waits for it to complete.
+  migrate:
+    build: .
+    command: ["sh", "-c", "goose -dir /migrations postgres \"$LAPLAT_DB_DSN\" up"]
+    environment:
+      LAPLAT_DB_DSN: postgres://laplat:laplat@db:5432/laplat?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+
+  authd:
+    build: .
+    environment:
+      LAPLAT_DB_DSN: postgres://laplat:laplat@db:5432/laplat?sslmode=disable
+      LAPLAT_TOKEN_KID: dev-1
+      # DEV default — override with your own base64 32-byte seed for anything real.
+      LAPLAT_TOKEN_SIGNING_KEY: ${LAPLAT_TOKEN_SIGNING_KEY:-pBg48EH9AdNdFjvu1qiSMEicjZrH2YhR4ypuM4DZsn4=}
+      LAPLAT_DEV_OTP_CONSOLE: "1"
+      LAPLAT_HTTP_ADDR: ":8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080" # exposed for debugging; the web BFF reaches authd in-network
+
+  web:
+    build: ./web
+    environment:
+      API_BASE: http://authd:8080 # server-side BFF target (in-network)
+      COOKIE_SECURE: "false"      # running a prod build over http://localhost
+      ORIGIN: http://localhost:5173
+    depends_on:
+      authd:
+        condition: service_healthy
+    ports:
+      - "5173:3000"
