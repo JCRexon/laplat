@@ -3,3 +3,7 @@ node_modules
 /build
 .env
 *.local
+
+# e2e
+/test-results
+/playwright-report

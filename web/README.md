@@ -59,6 +59,26 @@ npm run build        # production build (adapter-node)
 `adapter-node` is used because the app needs a server at runtime to hold the
 token cookies and proxy `authd`.
 
+## End-to-end smoke
+
+```sh
+npm run e2e          # web/e2e/run.sh
+```
+
+A Playwright test (`e2e/funnel.spec.ts`) drives the real funnel in a browser —
+email-OTP sign-in, the first assurance climb (`none → declared`), and the
+catalog — against a real `authd` + Postgres. The harness (`e2e/run.sh`) boots the
+whole stack: a throwaway Postgres, `authd` with `LAPLAT_DEV_OTP_CONSOLE=1` (the
+test reads the code from authd's log, exactly as a developer would), and the
+SvelteKit dev server (dev mode so its cookies aren't `Secure` over http). This is
+what turns "the frontend compiles" into "the frontend works": writing it first
+caught three real bugs (a stale tier after a climb, a catalog crash on a 404
+sessions route, and a non-JSON error body the BFF mis-parsed).
+
+The harness targets this project's dev/CI container (PostgreSQL 16 at
+`/usr/lib/postgresql/16/bin`, a `postgres` system user, and a Playwright Chromium
+under `/opt/pw-browsers`); adjust those paths to run it on a different machine.
+
 ## Not yet wired
 
 - **eKYC**: `verify/begin` is surfaced, but the provider isn't wired in local

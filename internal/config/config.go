@@ -63,6 +63,11 @@ const (
 	EnvLiveKitAPISecret = "LAPLAT_LIVEKIT_API_SECRET"
 	EnvLiveKitURL       = "LAPLAT_LIVEKIT_URL" // wss://... media server
 
+	// DEV ONLY. When truthy, email/phone OTP login falls back to a console
+	// sender that LOGS the code (no SMTP/SMS vendor needed) — for local
+	// development only. Ignored for a channel that has a real vendor configured.
+	EnvDevOTPConsole = "LAPLAT_DEV_OTP_CONSOLE"
+
 	// VN eKYC vendor (optional). Enables the 'verified' tier for region VN when
 	// the vendor URL and webhook secret are present.
 	EnvEKYCVendorURL     = "LAPLAT_EKYC_VENDOR_URL"
@@ -95,6 +100,7 @@ type Config struct {
 	SMS            *SMSConfig     // nil unless phone-OTP login is configured
 	LiveKit        *LiveKitConfig // nil unless live sessions are configured
 	EKYC           *EKYCConfig    // nil unless the VN eKYC vendor is configured
+	DevOTPConsole  bool           // DEV ONLY: log OTP codes when no vendor is set
 }
 
 // EKYCConfig is the (optional) VN adult-verification vendor configuration.
@@ -235,7 +241,18 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.EKYC, err = parseEKYC(getenv); err != nil {
 		return Config{}, err
 	}
+	cfg.DevOTPConsole = truthy(getenv(EnvDevOTPConsole))
 	return cfg, nil
+}
+
+// truthy parses a permissive boolean env value (1/true/yes/on, case-insensitive).
+func truthy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // parseEKYC reads the optional VN eKYC vendor config. Enabled when the vendor

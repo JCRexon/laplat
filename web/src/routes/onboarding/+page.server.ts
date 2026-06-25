@@ -1,11 +1,14 @@
 import { fail, redirect } from "@sveltejs/kit";
 import type { Actions, PageServerLoad } from "./$types";
-import { api, ApiError, remint } from "$lib/server/authd";
+import { api, ApiError, getMe, remint } from "$lib/server/authd";
 import type { VerifyBegin } from "$lib/types";
 
-export const load: PageServerLoad = async ({ locals }) => {
-  if (!locals.me) throw redirect(303, "/signin");
-  return { me: locals.me };
+// Resolve me from the current cookies (not locals.me) so the rung shown reflects
+// a tier climb that re-minted the token earlier in this same action request.
+export const load: PageServerLoad = async ({ cookies }) => {
+  const me = await getMe(cookies);
+  if (!me) throw redirect(303, "/signin");
+  return { me };
 };
 
 function status(e: unknown): number {
