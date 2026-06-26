@@ -87,6 +87,7 @@ func run(log *slog.Logger) error {
 	}
 
 	handler := auth.NewHandler(svc, validator)
+	handler.RegisterProfile(st)
 
 	// Identity: self-declaration ('declared' tier) always; the VN eKYC vendor
 	// ('verified' tier) for region VN when configured.
