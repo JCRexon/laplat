@@ -49,20 +49,43 @@ async function parse<T>(res: Response): Promise<T> {
   return data as T;
 }
 
+// Single-flight refresh, scoped to one request via the per-request cookies
+// object. The refresh token is single-use: authd rotates it on every refresh
+// and invalidates the old one. When several api() calls run concurrently
+// (Promise.all in a load) and all hit 401, each would otherwise refresh with
+// the same refresh token — the first rotates it, the rest send a now-stale
+// token, fail, and clearSession() logs the user out. Coalescing them onto one
+// shared promise spends the token exactly once; every caller gets the same new
+// access token. A WeakMap keyed by the cookies object isolates requests from
+// each other (so each request still sets its own Set-Cookie) and needs no
+// manual cleanup.
+const inflightRefresh = new WeakMap<Cookies, Promise<string | null>>();
+
 // refresh re-mints the access token from the refresh cookie, rotating both
 // cookies. Returns the new access token, or null if the refresh token is itself
 // rejected (caller should treat as signed-out).
-async function refresh(cookies: Cookies): Promise<string | null> {
-  const rt = refreshCookie(cookies);
-  if (!rt) return null;
-  const res = await call("/v1/token/refresh", { method: "POST", body: { refreshToken: rt } });
-  if (!res.ok) {
-    clearSession(cookies);
-    return null;
-  }
-  const s = (await res.json()) as Session;
-  setSession(cookies, s);
-  return s.accessToken;
+function refresh(cookies: Cookies): Promise<string | null> {
+  const existing = inflightRefresh.get(cookies);
+  if (existing) return existing;
+
+  const p = (async () => {
+    const rt = refreshCookie(cookies);
+    if (!rt) return null;
+    const res = await call("/v1/token/refresh", { method: "POST", body: { refreshToken: rt } });
+    if (!res.ok) {
+      clearSession(cookies);
+      return null;
+    }
+    const s = (await res.json()) as Session;
+    setSession(cookies, s);
+    return s.accessToken;
+  })();
+
+  inflightRefresh.set(cookies, p);
+  // Drop the entry once settled so a later, genuine re-expiry in the same
+  // request can refresh again rather than reuse a resolved promise.
+  void p.finally(() => inflightRefresh.delete(cookies));
+  return p;
 }
 
 // api is the authenticated server-side call: it attaches the access-token cookie
