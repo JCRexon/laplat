@@ -26,11 +26,11 @@ type claimsKey struct{}
 type Handler struct {
 	svc       *Service
 	validator *token.Validator
-	oidc      *Federation  // nil unless RegisterOIDC was called
-	email     *EmailLogin  // nil unless RegisterEmailLogin was called
-	phone     *PhoneLogin  // nil unless RegisterPhoneLogin was called
-	tos       ToSAcceptor  // nil unless RegisterIdentity was called
-	ekyc      EKYCService  // nil unless RegisterIdentity received one
+	oidc      *Federation   // nil unless RegisterOIDC was called
+	email     *EmailLogin   // nil unless RegisterEmailLogin was called
+	phone     *PhoneLogin   // nil unless RegisterPhoneLogin was called
+	tos       ToSAcceptor   // nil unless RegisterIdentity was called
+	ekyc      EKYCService   // nil unless RegisterIdentity received one
 	profile   ProfileReader // nil unless RegisterProfile was called
 	mux       *http.ServeMux
 }
