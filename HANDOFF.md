@@ -4,7 +4,7 @@ A running snapshot of where the project is and what's next, so a fresh session
 (or a returning human) can get up to speed without re-reading the whole chat
 history. Update the "Current state" and "Next tasks" sections as work lands.
 
-_Last updated: 2026-06-26 — after LiveKit media-infra slice + catalog polish (this PR)._
+_Last updated: 2026-06-26 — after playback serving, class enrollment, and security hardening (PRs #33–#35)._
 
 ## What laplat is
 
@@ -91,10 +91,26 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
     recordings for any authenticated user (free-recording floor, `none` tier).
   - **Catalog UI polish**: class cards in a responsive grid, session list with
     live/scheduled/ended status badges, recording count shown inline per session.
+- **Playback serving** (PR #33): nginx:alpine on port 9090 serves completed
+  recordings from the shared `recordings` named volume. `authd` builds a
+  `playbackUrl` by stripping `LAPLAT_LIVEKIT_FILE_PREFIX` from `outputUri` and
+  prepending `LAPLAT_RECORDINGS_BASE_URL`. Catalog shows Watch links.
+  DEV ONLY: nginx has no auth; production needs `auth_request` → authd or
+  signed/expiring URLs.
+- **Class enrollment** (PR #33): `class_members` table (migration 00015); store
+  methods `EnrollClass`/`UnenrollClass`/`IsEnrolled`/etc.; service layer with
+  declared-tier gate (Decree 147 adult self-attestation); HTTP at
+  `POST/DELETE /v1/classes/{id}/enroll` and `GET /v1/classes/enrolled`.
+  Catalog shows Enroll/Unenroll buttons (progressive enhancement via `use:enhance`).
+- **Security hardening** (PRs #34–#35):
+  - `buildPlaybackURL` rejects `outputUri` containing `..`
+  - Enroll/unenroll actions validate `classId` non-empty (400 otherwise)
+  - `ParseWebhook` now enforces JWT `exp`/`nbf` (30s clock-skew) and verifies
+    `iss` == `apiKey`; takes `apiKey` as an explicit parameter.
 - Frontend: SvelteKit + adapter-node BFF (tokens in httpOnly cookies,
   server-side load/actions) — chosen to minimise client-side data storage.
 - Local stack: Docker Compose (`compose.yaml`) — db → migrate → seed → authd →
-  web + **redis + livekit + egress**. Runs on a Mac via Lima/`nerdctl compose`.
+  web + **redis + livekit + egress + nginx**. Runs on a Mac via Lima/`nerdctl compose`.
 
 ### Decisions worth remembering
 
@@ -108,22 +124,13 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
 
 ## Next tasks (pick one)
 
-1. **Payments / entitlements**. The free-recording floor is live; paid content
-   is the next tier. Needs: payment-provider integration (Stripe / VNPay),
-   an `entitlements` table, a purchase flow, and an entitlement check in the
-   playback endpoint (replacing the free-only stub).
+1. **Payments / entitlements** (last priority). The free-recording floor is live;
+   paid content is the next tier. Needs: payment-provider integration
+   (Stripe / VNPay), an `entitlements` table, a purchase flow, and an
+   entitlement check in the playback endpoint (replacing the free-only stub).
+   The enrollment service already has a stub comment for the entitlement gate.
 
-2. **Class enrollment + capacity**. A `class_members` table keyed to accounts
-   (the "members-only" sense — roster membership, orthogonal to tier). Gated
-   by the payment system; exposes `POST /v1/classes/{id}/enroll`.
-
-3. **Playback serving**. The `output_uri` is a local container path today.
-   For real playback: either mount the recordings volume to a static-file
-   server, or add S3/GCS upload in the egress post-processing hook. The
-   entitlement gate in `/v1/recordings/sessions/{id}/playback` already exists
-   as a stub for paid content.
-
-4. **Zalo OIDC** (in review). Wire the Zalo sign-in flow end-to-end once
+2. **Zalo OIDC** (in review). Wire the Zalo sign-in flow end-to-end once
    the provider review clears.
 
 ## Verification commands
