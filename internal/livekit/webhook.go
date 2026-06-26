@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // WebhookEvent is a LiveKit server webhook payload.
@@ -25,6 +26,9 @@ const (
 	WebhookEgressEnded   = "egress_ended"
 )
 
+// webhookClockSkew is the tolerance applied when checking webhook JWT expiry.
+const webhookClockSkew = 30 * time.Second
+
 // ParseWebhook reads and verifies a LiveKit webhook request.
 //
 // LiveKit signs webhooks with a short-lived HS256 JWT in the Authorization
@@ -32,7 +36,12 @@ const (
 // the raw body — so both the signature and body integrity are verified before
 // the payload is decoded. The body is consumed; the caller must not have read
 // it beforehand.
-func ParseWebhook(r *http.Request, apiSecret string) (*WebhookEvent, error) {
+//
+// apiKey and apiSecret must match the LiveKit project credentials: the issuer
+// claim in the JWT is compared to apiKey (cross-key confusion guard), and
+// the signature is verified with apiSecret. The JWT exp claim is enforced
+// with a 30-second clock skew allowance to block indefinite replay attacks.
+func ParseWebhook(r *http.Request, apiKey, apiSecret string) (*WebhookEvent, error) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("livekit webhook: reading body: %w", err)
@@ -48,6 +57,16 @@ func ParseWebhook(r *http.Request, apiSecret string) (*WebhookEvent, error) {
 	claims, err := verifyWebhookJWT(jwtTok, []byte(apiSecret))
 	if err != nil {
 		return nil, fmt.Errorf("livekit webhook: jwt: %w", err)
+	}
+	if claims.Issuer != apiKey {
+		return nil, errors.New("livekit webhook: issuer mismatch")
+	}
+	now := time.Now()
+	if claims.Exp > 0 && now.Unix() > claims.Exp+int64(webhookClockSkew.Seconds()) {
+		return nil, errors.New("livekit webhook: token expired")
+	}
+	if claims.Nbf > 0 && now.Add(webhookClockSkew).Unix() < claims.Nbf {
+		return nil, errors.New("livekit webhook: token not yet valid")
 	}
 
 	// Constant-time comparison prevents timing oracle on the claimed body hash.
@@ -67,6 +86,8 @@ func ParseWebhook(r *http.Request, apiSecret string) (*WebhookEvent, error) {
 type webhookClaims struct {
 	Issuer string `json:"iss"`
 	SHA256 string `json:"sha256"`
+	Exp    int64  `json:"exp"`
+	Nbf    int64  `json:"nbf"`
 }
 
 // verifyWebhookJWT verifies an HS256 JWT signed with secret and returns its
