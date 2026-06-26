@@ -18,6 +18,7 @@ import (
 type Handler struct {
 	svc            *Service
 	validator      *token.Validator
+	apiKey         string // LiveKit API key for webhook issuer check
 	apiSecret      string // LiveKit API secret for webhook verification
 	recordingsBase string // public base URL for playback links (optional)
 	filePrefix     string // file prefix to strip when building playback URLs
@@ -31,9 +32,9 @@ type Handler struct {
 // recordingsBase (e.g. "http://localhost:9090") and filePrefix (e.g. "/out/")
 // are used together to build playbackUrl values in the playback endpoint.
 // Both are optional: when recordingsBase is empty no playbackUrl is produced.
-func NewHandler(svc *Service, validator *token.Validator, apiSecret, recordingsBase, filePrefix string, log *slog.Logger) *Handler {
+func NewHandler(svc *Service, validator *token.Validator, apiKey, apiSecret, recordingsBase, filePrefix string, log *slog.Logger) *Handler {
 	h := &Handler{
-		svc: svc, validator: validator, apiSecret: apiSecret,
+		svc: svc, validator: validator, apiKey: apiKey, apiSecret: apiSecret,
 		recordingsBase: recordingsBase, filePrefix: filePrefix, log: log,
 		mux: http.NewServeMux(),
 	}
@@ -140,7 +141,7 @@ func (h *Handler) buildPlaybackURL(outputURI string) string {
 // request is verified via the LiveKit JWT in the Authorization header; our
 // access-token validator is not involved (LiveKit is a trusted server peer).
 func (h *Handler) liveKitWebhook(w http.ResponseWriter, r *http.Request) {
-	ev, err := livekit.ParseWebhook(r, h.apiSecret)
+	ev, err := livekit.ParseWebhook(r, h.apiKey, h.apiSecret)
 	if err != nil {
 		h.log.Warn("livekit webhook rejected", "err", err)
 		writeErr(w, http.StatusUnauthorized, "webhook verification failed")
