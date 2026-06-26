@@ -31,6 +31,7 @@ import (
 	"github.com/jcrexon/laplat/internal/livekit"
 	"github.com/jcrexon/laplat/internal/moderation"
 	"github.com/jcrexon/laplat/internal/otpconsole"
+	"github.com/jcrexon/laplat/internal/recording"
 	"github.com/jcrexon/laplat/internal/session"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
@@ -205,6 +206,25 @@ func run(log *slog.Logger) error {
 		apiMux.Handle("/v1/sessions", sessionHandler)  // exact (create)
 		apiMux.Handle("/v1/sessions/", sessionHandler) // subtree (join/start/end/leave)
 		log.Info("live sessions enabled", "url", cfg.LiveKit.URL)
+
+		egressClient, err := livekit.NewEgressClient(cfg.LiveKit.HTTPURL, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, cfg.LiveKit.FilePrefix)
+		if err != nil {
+			return err
+		}
+		recordingSvc, err := recording.NewService(st, egressClient)
+		if err != nil {
+			return err
+		}
+		apiMux.Handle("/v1/recordings/", recording.NewHandler(recordingSvc, validator))
+		// D-2: a consent withdrawal must stop an in-flight recording. Reconcile
+		// best-effort after any consent change; failures are logged, not fatal,
+		// since the (committed) ledger is the source of truth.
+		consentSvc.OnChange(func(ctx context.Context, sessionID string) {
+			if err := recordingSvc.ReconcileForSession(ctx, sessionID); err != nil {
+				log.Error("recording reconcile failed", "session", sessionID, "err", err)
+			}
+		})
+		log.Info("recording enabled", "egress", cfg.LiveKit.HTTPURL)
 	}
 	var api http.Handler = apiMux
 
