@@ -86,6 +86,25 @@ func (f *fakeRepo) RecordingsBySession(_ context.Context, sessionID string) ([]s
 	return out, nil
 }
 
+func (f *fakeRepo) RecordingByEgress(_ context.Context, egressID string) (store.Recording, bool, error) {
+	for _, r := range f.recs {
+		if r.EgressID == egressID {
+			return *r, true, nil
+		}
+	}
+	return store.Recording{}, false, nil
+}
+
+func (f *fakeRepo) CompletedRecordingsBySession(_ context.Context, sessionID string) ([]store.Recording, error) {
+	var out []store.Recording
+	for _, r := range f.recs {
+		if r.SessionID == sessionID && r.Status == StatusCompleted {
+			out = append(out, *r)
+		}
+	}
+	return out, nil
+}
+
 func isInFlight(s string) bool {
 	return s == StatusStarting || s == StatusActive || s == StatusStopping
 }
@@ -266,5 +285,67 @@ func TestReconcile_NoopWhenAllowed(t *testing.T) {
 	}
 	if eg.stopped != 0 {
 		t.Fatal("reconcile must not stop a still-consented recording")
+	}
+}
+
+// HandleWebhookEvent updates the recording to completed with the output URI.
+func TestHandleWebhookEvent_CompletesRecording(t *testing.T) {
+	repo := newFakeRepo()
+	repo.allowed = true
+	eg := &fakeEgress{startStatus: livekit.EgressActive}
+	svc := newSvc(t, repo, eg)
+
+	if _, err := svc.Start(context.Background(), hostClaims(), "S1"); err != nil {
+		t.Fatal(err)
+	}
+
+	uri := "/out/ses-42-1234.mp4"
+	ev := &livekit.WebhookEvent{
+		Event: livekit.WebhookEgressEnded,
+		EgressInfo: &livekit.EgressInfo{
+			EgressID: "EG_1",
+			Status:   livekit.EgressComplete,
+			File:     &livekit.EgressFile{Location: uri},
+		},
+	}
+	if err := svc.HandleWebhookEvent(context.Background(), ev); err != nil {
+		t.Fatalf("HandleWebhookEvent: %v", err)
+	}
+
+	recs, err := svc.ListCompleted(context.Background(), "S1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("completed recordings = %d, want 1", len(recs))
+	}
+	if recs[0].OutputURI != uri {
+		t.Errorf("OutputURI = %q, want %q", recs[0].OutputURI, uri)
+	}
+}
+
+// HandleWebhookEvent silently ignores unknown egress IDs.
+func TestHandleWebhookEvent_UnknownEgressIgnored(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newSvc(t, repo, &fakeEgress{})
+
+	ev := &livekit.WebhookEvent{
+		Event: livekit.WebhookEgressEnded,
+		EgressInfo: &livekit.EgressInfo{
+			EgressID: "UNKNOWN",
+			Status:   livekit.EgressComplete,
+		},
+	}
+	if err := svc.HandleWebhookEvent(context.Background(), ev); err != nil {
+		t.Fatalf("HandleWebhookEvent: unexpected error for unknown egress: %v", err)
+	}
+}
+
+// HandleWebhookEvent with nil EgressInfo is a no-op (e.g. room-level events).
+func TestHandleWebhookEvent_NoEgressInfo(t *testing.T) {
+	svc := newSvc(t, newFakeRepo(), &fakeEgress{})
+	ev := &livekit.WebhookEvent{Event: "room_started"}
+	if err := svc.HandleWebhookEvent(context.Background(), ev); err != nil {
+		t.Fatalf("HandleWebhookEvent: unexpected error for nil EgressInfo: %v", err)
 	}
 }

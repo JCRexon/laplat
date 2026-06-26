@@ -4,7 +4,7 @@ A running snapshot of where the project is and what's next, so a fresh session
 (or a returning human) can get up to speed without re-reading the whole chat
 history. Update the "Current state" and "Next tasks" sections as work lands.
 
-_Last updated: 2026-06-26 — after PRs #29 + #30 (recordings + consent ledger)._
+_Last updated: 2026-06-26 — after LiveKit media-infra slice + catalog polish (this PR)._
 
 ## What laplat is
 
@@ -76,12 +76,25 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
   `/v1/recordings/sessions/{id}`. Egress client in `internal/livekit/egress.go`
   (stdlib Twirp/JSON, roomRecord JWT). Output: local-file behind a pluggable
   client (S3/GCS snap in later).
+- **LiveKit media-infra slice** (this PR):
+  - `compose.yaml` now runs `redis` + `livekit/livekit-server` + `livekit/egress`
+    alongside authd; `LAPLAT_LIVEKIT_*` env vars are wired so live sessions and
+    recording work end-to-end with `docker compose up --build`.
+  - Dev configs live in `dev/livekit.yaml` and `dev/egress.yaml` (DEV-only keys;
+    egress writes to a named Docker volume `recordings`).
+  - **Webhook ingest**: `internal/livekit/webhook.go` verifies the LiveKit HS256
+    JWT (signing input + body SHA-256 claim); `POST /v1/webhooks/livekit` applies
+    `egress_started`/`egress_updated`/`egress_ended` events to the recording row
+    via `recording.Service.HandleWebhookEvent` → `store.UpdateRecordingStatus`,
+    landing the async `completed`/`failed` status and `output_uri`.
+  - **Playback**: `GET /v1/recordings/sessions/{id}/playback` returns completed
+    recordings for any authenticated user (free-recording floor, `none` tier).
+  - **Catalog UI polish**: class cards in a responsive grid, session list with
+    live/scheduled/ended status badges, recording count shown inline per session.
 - Frontend: SvelteKit + adapter-node BFF (tokens in httpOnly cookies,
   server-side load/actions) — chosen to minimise client-side data storage.
 - Local stack: Docker Compose (`compose.yaml`) — db → migrate → seed → authd →
-  web. Runs on a Mac via Lima/`nerdctl compose`. **Note:** the compose stack
-  does NOT run a LiveKit/egress server, so live sessions + recording are
-  disabled there today.
+  web + **redis + livekit + egress**. Runs on a Mac via Lima/`nerdctl compose`.
 
 ### Decisions worth remembering
 
@@ -95,24 +108,23 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
 
 ## Next tasks (pick one)
 
-1. **LiveKit media-infra slice** (the deferred half of recordings). Needs:
-   - Add a `livekit-server` (+ `redis`) and an `egress` container to
-     `compose.yaml`, with the `LAPLAT_LIVEKIT_*` env wired so recording runs
-     end-to-end locally.
-   - **Webhook ingest**: LiveKit posts egress status (`egress_started`,
-     `egress_updated`, `egress_ended`) — verify the signed webhook and call
-     `store.UpdateRecordingStatus` so async `completed`/`failed` and the
-     produced file URI land (today only the synchronous start/stop status is
-     recorded). This is what makes `output_uri` and terminal status reliable.
-   - **Playback / availability**: surface finished recordings (entitlement
-     rules per `ACCESS-MODEL.md` — free recordings at the `none` floor; paid
-     ones are entitlement-gated).
-   - Config knobs already exist: `LAPLAT_LIVEKIT_HTTP_URL` (derived from the
-     wss URL if unset), `LAPLAT_LIVEKIT_FILE_PREFIX` (default `/out/`).
+1. **Payments / entitlements**. The free-recording floor is live; paid content
+   is the next tier. Needs: payment-provider integration (Stripe / VNPay),
+   an `entitlements` table, a purchase flow, and an entitlement check in the
+   playback endpoint (replacing the free-only stub).
 
-2. **Catalog appearance polish** (explicitly parked by the user). The catalog
-   works and shows seeded demo courses; the visual design needs work.
-   Frontend-only, in `web/`.
+2. **Class enrollment + capacity**. A `class_members` table keyed to accounts
+   (the "members-only" sense — roster membership, orthogonal to tier). Gated
+   by the payment system; exposes `POST /v1/classes/{id}/enroll`.
+
+3. **Playback serving**. The `output_uri` is a local container path today.
+   For real playback: either mount the recordings volume to a static-file
+   server, or add S3/GCS upload in the egress post-processing hook. The
+   entitlement gate in `/v1/recordings/sessions/{id}/playback` already exists
+   as a stub for paid content.
+
+4. **Zalo OIDC** (in review). Wire the Zalo sign-in flow end-to-end once
+   the provider review clears.
 
 ## Verification commands
 

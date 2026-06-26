@@ -3,9 +3,11 @@ package recording
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/jcrexon/laplat/internal/livekit"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -16,16 +18,23 @@ import (
 type Handler struct {
 	svc       *Service
 	validator *token.Validator
+	apiSecret string // LiveKit API secret for webhook verification
+	log       *slog.Logger
 	mux       *http.ServeMux
 }
 
-// NewHandler wires the service and validator and registers routes under
-// /v1/recordings/ (kept off the LiveKit-gated /v1/sessions/ subtree).
-func NewHandler(svc *Service, validator *token.Validator) *Handler {
-	h := &Handler{svc: svc, validator: validator, mux: http.NewServeMux()}
+// NewHandler wires the service, validator, and LiveKit API secret, then
+// registers routes under /v1/recordings/ and /v1/webhooks/.
+func NewHandler(svc *Service, validator *token.Validator, apiSecret string, log *slog.Logger) *Handler {
+	h := &Handler{svc: svc, validator: validator, apiSecret: apiSecret, log: log, mux: http.NewServeMux()}
+	// Host-only recording controls.
 	h.mux.Handle("POST /v1/recordings/sessions/{sessionID}", h.auth(h.start))
 	h.mux.Handle("DELETE /v1/recordings/sessions/{sessionID}", h.auth(h.stop))
 	h.mux.Handle("GET /v1/recordings/sessions/{sessionID}", h.auth(h.list))
+	// Playback: completed recordings for a session, accessible at the none tier.
+	h.mux.Handle("GET /v1/recordings/sessions/{sessionID}/playback", h.auth(h.playback))
+	// Webhook ingest: verified by LiveKit JWT, not by our access token.
+	h.mux.HandleFunc("POST /v1/webhooks/livekit", h.liveKitWebhook)
 	return h
 }
 
@@ -78,6 +87,39 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request, claims *contracts
 		out = append(out, recordingJSON(rec))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"recordings": out})
+}
+
+// playback returns completed recordings for a session. Any authenticated user
+// may call this (free-recording floor per ACCESS-MODEL.md).
+func (h *Handler) playback(w http.ResponseWriter, r *http.Request, _ *contracts.AccessTokenClaims) {
+	recs, err := h.svc.ListCompleted(r.Context(), r.PathValue("sessionID"))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	out := make([]map[string]any, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, recordingJSON(rec))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"recordings": out})
+}
+
+// liveKitWebhook receives egress lifecycle events from the LiveKit server. The
+// request is verified via the LiveKit JWT in the Authorization header; our
+// access-token validator is not involved (LiveKit is a trusted server peer).
+func (h *Handler) liveKitWebhook(w http.ResponseWriter, r *http.Request) {
+	ev, err := livekit.ParseWebhook(r, h.apiSecret)
+	if err != nil {
+		h.log.Warn("livekit webhook rejected", "err", err)
+		writeErr(w, http.StatusUnauthorized, "webhook verification failed")
+		return
+	}
+	if err := h.svc.HandleWebhookEvent(r.Context(), ev); err != nil {
+		h.log.Error("livekit webhook: applying event failed", "event", ev.Event, "err", err)
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func recordingJSON(r store.Recording) map[string]any {

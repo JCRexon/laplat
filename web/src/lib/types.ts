@@ -47,3 +47,13 @@ export interface VerifyBegin {
   verificationId?: string;
   redirectUrl?: string;
 }
+
+// GET /v1/recordings/sessions/{id}/playback — completed recordings (free tier).
+export interface RecordingView {
+  id: string;
+  sessionId: string;
+  status: string;
+  startedAt: number;
+  endedAt?: number;
+  outputUri?: string;
+}

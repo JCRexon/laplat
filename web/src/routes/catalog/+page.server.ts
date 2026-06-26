@@ -1,7 +1,7 @@
 import { redirect } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 import { api, ApiError } from "$lib/server/authd";
-import type { ClassView, SessionSummary } from "$lib/types";
+import type { ClassView, SessionSummary, RecordingView } from "$lib/types";
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
   if (!locals.me) throw redirect(303, "/signin");
@@ -20,5 +20,28 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
     else if (!(e instanceof ApiError && e.status === 404)) throw e;
   }
 
-  return { classes, sessions, sessionsLocked };
+  // Fetch completed recordings for each session in parallel. 404 means the
+  // recording endpoint isn't mounted (LiveKit not configured); ignore it.
+  // Any other error is also silently ignored so a recording query failure
+  // never breaks the catalog.
+  const recordingsBySession: Record<string, RecordingView[]> = {};
+  if (sessions.length > 0) {
+    await Promise.all(
+      sessions.map(async (s) => {
+        try {
+          const data = await api<{ recordings: RecordingView[] }>(
+            cookies,
+            `/v1/recordings/sessions/${s.sessionId}/playback`
+          );
+          if (data.recordings?.length > 0) {
+            recordingsBySession[s.sessionId] = data.recordings;
+          }
+        } catch {
+          // Recording endpoint unavailable or no recordings — not an error.
+        }
+      })
+    );
+  }
+
+  return { classes, sessions, sessionsLocked, recordingsBySession };
 };
