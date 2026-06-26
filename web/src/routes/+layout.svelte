@@ -11,6 +11,7 @@
     <a class="brand" href="/">laplat</a>
     {#if data.me}
       <nav>
+        <a href="/dashboard">Dashboard</a>
         <a href="/catalog">Catalog</a>
         {#if data.me.capabilities.includes("can_instruct")}
           <a href="/classes">My classes</a>
