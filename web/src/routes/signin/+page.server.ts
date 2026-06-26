@@ -2,8 +2,10 @@ import { fail, redirect } from "@sveltejs/kit";
 import type { Actions, PageServerLoad } from "./$types";
 import { ApiError, emailRequest, emailVerify } from "$lib/server/authd";
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
   if (locals.me) throw redirect(303, "/catalog");
+  const oidcError = url.searchParams.get("oidcError") ?? undefined;
+  return { oidcError };
 };
 
 function msg(e: unknown): string {
