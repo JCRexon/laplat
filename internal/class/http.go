@@ -25,6 +25,11 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h.mux.Handle("POST /v1/classes", h.auth(h.create))
 	h.mux.Handle("GET /v1/classes", h.auth(h.listMine))
 	h.mux.Handle("GET /v1/classes/published", h.auth(h.listPublished))
+	// Enrollment: GET /v1/classes/enrolled must be more specific than
+	// POST/DELETE /v1/classes/{id}/enroll — Go 1.22 mux prefers literals.
+	h.mux.Handle("GET /v1/classes/enrolled", h.auth(h.listEnrolled))
+	h.mux.Handle("POST /v1/classes/{id}/enroll", h.auth(h.enroll))
+	h.mux.Handle("DELETE /v1/classes/{id}/enroll", h.auth(h.unenroll))
 	h.mux.Handle("POST /v1/classes/{id}/status", h.auth(h.setStatus))
 	return h
 }
@@ -95,6 +100,35 @@ type statusBody struct {
 	Status string `json:"status"`
 }
 
+func (h *Handler) enroll(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	if err := h.svc.Enroll(r.Context(), claims, r.PathValue("id")); err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) unenroll(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	if err := h.svc.Unenroll(r.Context(), claims, r.PathValue("id")); err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) listEnrolled(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	classes, err := h.svc.ListEnrolled(r.Context(), claims)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	out := make([]map[string]string, 0, len(classes))
+	for _, c := range classes {
+		out = append(out, classView(c))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"classes": out})
+}
+
 func (h *Handler) setStatus(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
 	var req statusBody
 	if !decode(w, r, &req) {
@@ -122,7 +156,7 @@ func writeServiceErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrForbidden):
 		writeErr(w, http.StatusForbidden, "insufficient tier or capability")
-	case errors.Is(err, ErrNotFound):
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrClassNotFound):
 		writeErr(w, http.StatusNotFound, "class not found")
 	case errors.Is(err, ErrBadTitle), errors.Is(err, ErrBadStatus):
 		writeErr(w, http.StatusBadRequest, err.Error())

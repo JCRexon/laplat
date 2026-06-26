@@ -16,17 +16,27 @@ import (
 // Handler is the recording control HTTP surface. It self-authenticates via the
 // access-token validator; the service enforces host-only control.
 type Handler struct {
-	svc       *Service
-	validator *token.Validator
-	apiSecret string // LiveKit API secret for webhook verification
-	log       *slog.Logger
-	mux       *http.ServeMux
+	svc            *Service
+	validator      *token.Validator
+	apiSecret      string // LiveKit API secret for webhook verification
+	recordingsBase string // public base URL for playback links (optional)
+	filePrefix     string // file prefix to strip when building playback URLs
+	log            *slog.Logger
+	mux            *http.ServeMux
 }
 
-// NewHandler wires the service, validator, and LiveKit API secret, then
+// NewHandler wires the service, validator, and LiveKit credentials, then
 // registers routes under /v1/recordings/ and /v1/webhooks/.
-func NewHandler(svc *Service, validator *token.Validator, apiSecret string, log *slog.Logger) *Handler {
-	h := &Handler{svc: svc, validator: validator, apiSecret: apiSecret, log: log, mux: http.NewServeMux()}
+//
+// recordingsBase (e.g. "http://localhost:9090") and filePrefix (e.g. "/out/")
+// are used together to build playbackUrl values in the playback endpoint.
+// Both are optional: when recordingsBase is empty no playbackUrl is produced.
+func NewHandler(svc *Service, validator *token.Validator, apiSecret, recordingsBase, filePrefix string, log *slog.Logger) *Handler {
+	h := &Handler{
+		svc: svc, validator: validator, apiSecret: apiSecret,
+		recordingsBase: recordingsBase, filePrefix: filePrefix, log: log,
+		mux: http.NewServeMux(),
+	}
 	// Host-only recording controls.
 	h.mux.Handle("POST /v1/recordings/sessions/{sessionID}", h.auth(h.start))
 	h.mux.Handle("DELETE /v1/recordings/sessions/{sessionID}", h.auth(h.stop))
@@ -99,9 +109,27 @@ func (h *Handler) playback(w http.ResponseWriter, r *http.Request, _ *contracts.
 	}
 	out := make([]map[string]any, 0, len(recs))
 	for _, rec := range recs {
-		out = append(out, recordingJSON(rec))
+		m := recordingJSON(rec)
+		if u := h.buildPlaybackURL(rec.OutputURI); u != "" {
+			m["playbackUrl"] = u
+		}
+		out = append(out, m)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"recordings": out})
+}
+
+// buildPlaybackURL converts an outputUri (e.g. "/out/room.mp4") to a public
+// playback URL (e.g. "http://localhost:9090/room.mp4") by stripping filePrefix
+// and prepending recordingsBase. Returns "" when recordingsBase is unset.
+func (h *Handler) buildPlaybackURL(outputURI string) string {
+	if h.recordingsBase == "" || outputURI == "" {
+		return ""
+	}
+	rel := strings.TrimPrefix(outputURI, h.filePrefix)
+	if !strings.HasPrefix(rel, "/") {
+		rel = "/" + rel
+	}
+	return h.recordingsBase + rel
 }
 
 // liveKitWebhook receives egress lifecycle events from the LiveKit server. The
