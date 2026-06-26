@@ -139,29 +139,52 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
 - Feature branches per PR (e.g. `claude/consent-ledger`), not one long-lived
   branch. Commit-message trailers: `Co-Authored-By` + `Claude-Session`.
 
-## Next tasks (pick one)
+## Next tasks
 
-1. **Payments / entitlements**. The free-recording floor is live; paid content
-   is the next tier. Needs: payment-provider integration (Stripe / VNPay), an
-   `entitlements` table, a purchase flow, and an entitlement check in the
-   playback endpoint (replacing the free-only stub). The enrollment service
-   already has a stub comment for the entitlement gate.
+Split by whether they can be built **now** (self-contained, no third party) or
+are **blocked** on an external provider/credential/approval. Prefer the
+unblocked list — these close loops on features already half-built.
 
-2. **Zalo OIDC**. Wire the Zalo sign-in flow end-to-end once the provider review
-   clears. The Go backend already has a `providers["VN"]` slot; the SvelteKit
-   proxy routes support any `[provider]` slug.
+### Unblocked — buildable now (no external dependency)
 
-3. **Learner session UI**. The instructor can now start/end sessions from
-   `/classes`. Learners see live sessions in the catalog (`/catalog`) with a
-   Join button that POSTs to `POST /v1/sessions/{id}/join` and redirects to
-   `/room/{id}`. The room page exists but the catalog doesn't surface join links
-   dynamically based on live status — add a polling or SSE refresh so "Live now"
-   appears without a manual reload.
+1. **Learner session UI**. The instructor can now start/end sessions from
+   `/classes`. Learners need the other half: surface live sessions in the catalog
+   (`/catalog`) with a Join button that POSTs to `POST /v1/sessions/{id}/join`
+   and redirects to `/room/{id}`. The room page and the join endpoint already
+   exist — the gap is that the catalog doesn't show join links keyed off live
+   status. Add a polling/SSE refresh so "Live now" appears without a manual
+   reload. **Highest leverage**: it completes the create→join session loop.
 
-4. **Recording playback in the room page**. After a session ends, the instructor
-   (and enrolled learners) should be able to play back recordings from the room
-   page or the class detail view. `GET /v1/recordings/sessions/{id}/playback`
-   is already implemented; just needs a UI surface.
+2. **Recording playback surface**. After a session ends, the instructor (and
+   enrolled learners) should be able to play back recordings from the room page
+   or a class-detail view. `GET /v1/recordings/sessions/{id}/playback` is fully
+   implemented and now returns secure_link-signed URLs — this is purely a missing
+   UI surface.
+
+3. **Entitlements scaffolding** (the non-provider half of payments). The data
+   model and gate can land before any payment provider is wired: add the
+   `entitlements` table + store methods, and replace the free-only stub in the
+   playback/enrollment path with a real entitlement check (the enrollment
+   service already has a stub comment marking where). Only the final
+   purchase/charge step needs an external provider (see Blocked #1).
+
+### Blocked — needs an external provider, credential, or approval
+
+1. **Payments**. The purchase/charge flow needs a Stripe or VNPay merchant
+   account + API credentials. Build the entitlements model first (Unblocked #3);
+   the provider integration is the last mile, not a prerequisite.
+
+2. **Zalo OIDC**. Waiting on Zalo's provider/app review. The Go backend already
+   has a `providers["VN"]` slot and the SvelteKit proxy routes accept any
+   `[provider]` slug — just needs approved client credentials.
+
+3. **eKYC `verified` tier**. The hook is in (`internal/ekyc`, `providers["VN"]`);
+   needs the VN vendor's URL/token and a real contract to switch on.
+
+4. **Production wiring of dev stubs**. Real Google/Apple OIDC client secrets,
+   SMTP/SMS providers (OTP is dev-console today), S3/GCS-backed egress instead of
+   the local-file client, and real secrets replacing the `dev*` defaults
+   (`LAPLAT_TOKEN_SIGNING_KEY`, `LAPLAT_RECORDINGS_SECRET`, LiveKit keys).
 
 ## Verification commands
 

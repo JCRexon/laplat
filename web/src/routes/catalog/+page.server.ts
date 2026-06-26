@@ -8,17 +8,28 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 
   const classes = (await api<{ classes: ClassView[] }>(cookies, "/v1/classes/published")).classes ?? [];
 
-  // Listing sessions requires the declared tier (403 below it). The endpoint is
-  // also only mounted when live sessions (LiveKit) are configured, so it can 404
-  // — treat that as "sessions unavailable", not an error.
+  // Sessions are discovered per published class — there is no global session
+  // list endpoint (GET /v1/sessions requires a classId). Fetch them in parallel
+  // and flatten. Listing requires the declared tier: a 403 means sessions are
+  // locked for this user. A 404 means the endpoint isn't mounted (LiveKit not
+  // configured) — treat that as "sessions unavailable", not an error.
   let sessions: SessionSummary[] = [];
   let sessionsLocked = false;
-  try {
-    sessions = (await api<{ sessions: SessionSummary[] }>(cookies, "/v1/sessions")).sessions ?? [];
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 403) sessionsLocked = true;
-    else if (!(e instanceof ApiError && e.status === 404)) throw e;
-  }
+  const perClass = await Promise.all(
+    classes.map(async (c) => {
+      try {
+        return (await api<{ sessions: SessionSummary[] }>(cookies, `/v1/sessions?classId=${c.id}`)).sessions ?? [];
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 403) {
+          sessionsLocked = true;
+          return [];
+        }
+        if (e instanceof ApiError && e.status === 404) return [];
+        throw e;
+      }
+    })
+  );
+  sessions = perClass.flat();
 
   // Fetch completed recordings for each session in parallel. 404 means the
   // recording endpoint isn't mounted (LiveKit not configured); ignore it.
