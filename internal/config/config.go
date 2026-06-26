@@ -66,8 +66,13 @@ const (
 	// lives on the LiveKit server's HTTP endpoint; if unset it is derived from
 	// EnvLiveKitURL (ws→http, wss→https). The file prefix is where room-composite
 	// recordings are written (a mounted volume for the local stack).
-	EnvLiveKitHTTPURL       = "LAPLAT_LIVEKIT_HTTP_URL"
-	EnvLiveKitFilePrefix    = "LAPLAT_LIVEKIT_FILE_PREFIX"
+	EnvLiveKitHTTPURL    = "LAPLAT_LIVEKIT_HTTP_URL"
+	EnvLiveKitFilePrefix = "LAPLAT_LIVEKIT_FILE_PREFIX"
+	// EnvRecordingsBaseURL is the public HTTP base URL from which completed
+	// recordings can be downloaded (e.g. "http://localhost:9090" for the local
+	// nginx static-file server). When set, the playback endpoint appends the
+	// relative filename to build a playbackUrl for the client.
+	EnvRecordingsBaseURL    = "LAPLAT_RECORDINGS_BASE_URL"
 	defaultEgressFilePrefix = "/out/"
 
 	// DEV ONLY. When truthy, email/phone OTP login falls back to a console
@@ -127,6 +132,10 @@ type LiveKitConfig struct {
 	// writes room recordings.
 	HTTPURL    string
 	FilePrefix string
+	// RecordingsBaseURL is the public HTTP base URL for completed recordings
+	// (e.g. "http://localhost:9090"). When set the playback endpoint returns a
+	// playbackUrl field clients can navigate to directly. Optional.
+	RecordingsBaseURL string
 }
 
 // SMTPConfig is the (optional) email-OTP transport configuration.
@@ -305,9 +314,11 @@ func parseLiveKit(getenv func(string) string) (*LiveKitConfig, error) {
 	if filePrefix == "" {
 		filePrefix = defaultEgressFilePrefix
 	}
+	recordingsBase := strings.TrimRight(strings.TrimSpace(getenv(EnvRecordingsBaseURL)), "/")
 	return &LiveKitConfig{
 		APIKey: key, APISecret: secret, URL: url,
 		HTTPURL: httpURL, FilePrefix: filePrefix,
+		RecordingsBaseURL: recordingsBase,
 	}, nil
 }
 

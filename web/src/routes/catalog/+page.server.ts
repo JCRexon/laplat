@@ -1,5 +1,5 @@
-import { redirect } from "@sveltejs/kit";
-import type { PageServerLoad } from "./$types";
+import { fail, redirect } from "@sveltejs/kit";
+import type { Actions, PageServerLoad } from "./$types";
 import { api, ApiError } from "$lib/server/authd";
 import type { ClassView, SessionSummary, RecordingView } from "$lib/types";
 
@@ -43,5 +43,36 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
     );
   }
 
-  return { classes, sessions, sessionsLocked, recordingsBySession };
+  // Fetch the user's enrolled class IDs. 403 means the user hasn't met the
+  // declared tier yet — they can still browse, just can't enroll.
+  let enrolledIds: string[] = [];
+  try {
+    const enrolled = (await api<{ classes: ClassView[] }>(cookies, "/v1/classes/enrolled")).classes ?? [];
+    enrolledIds = enrolled.map((c) => c.id);
+  } catch {
+    // Not enrolled in anything, or tier too low — treat as empty.
+  }
+
+  return { classes, sessions, sessionsLocked, recordingsBySession, enrolledIds };
+};
+
+export const actions: Actions = {
+  enroll: async ({ cookies, request }) => {
+    const form = await request.formData();
+    const classId = form.get("classId") as string;
+    try {
+      await api(cookies, `/v1/classes/${classId}/enroll`, { method: "POST" });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 403) {
+        return fail(403, { error: "Identity verification required to enroll." });
+      }
+      throw e;
+    }
+  },
+
+  unenroll: async ({ cookies, request }) => {
+    const form = await request.formData();
+    const classId = form.get("classId") as string;
+    await api(cookies, `/v1/classes/${classId}/enroll`, { method: "DELETE" });
+  },
 };

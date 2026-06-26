@@ -25,6 +25,7 @@ export interface ClassView {
   title: string;
   description: string;
   status: string;
+  enrolled?: boolean;
 }
 
 export interface SessionSummary {
@@ -56,4 +57,5 @@ export interface RecordingView {
   startedAt: number;
   endedAt?: number;
   outputUri?: string;
+  playbackUrl?: string;
 }

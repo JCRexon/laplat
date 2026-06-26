@@ -130,6 +130,8 @@ services:
       # set here because the LiveKit container is HTTP-only inside compose.
       LAPLAT_LIVEKIT_HTTP_URL: http://livekit:7880
       LAPLAT_LIVEKIT_FILE_PREFIX: /out
+      # Base URL of the nginx recordings server (host-accessible for browser playback).
+      LAPLAT_RECORDINGS_BASE_URL: http://localhost:9090
     # Retry if it starts before Postgres is ready (startup DB ping fails -> exit).
     restart: on-failure
     healthcheck:
@@ -144,6 +146,17 @@ services:
         condition: service_started
     ports:
       - "8080:8080" # exposed for debugging; the web BFF reaches authd in-network
+
+  # Serves completed recording files from the shared named volume. Browser
+  # clients use http://localhost:9090/<filename> for playback.
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - recordings:/usr/share/nginx/html:ro
+    ports:
+      - "9090:80"
+    depends_on:
+      - egress
 
   web:
     build: ./web

@@ -32,6 +32,13 @@ type Repo interface {
 	ListClassesByInstructor(ctx context.Context, instructorID string) ([]store.Class, error)
 	ListPublishedClasses(ctx context.Context) ([]store.Class, error)
 	UpdateClassStatus(ctx context.Context, id, status string) error
+
+	// Enrollment.
+	EnrollClass(ctx context.Context, classID, userID string) error
+	UnenrollClass(ctx context.Context, classID, userID string) error
+	IsEnrolled(ctx context.Context, classID, userID string) (bool, error)
+	EnrolledClassesWithDetails(ctx context.Context, userID string) ([]store.Class, error)
+	EnrolledClassIDs(ctx context.Context, userID string) ([]string, error)
 }
 
 // Service orchestrates class management.

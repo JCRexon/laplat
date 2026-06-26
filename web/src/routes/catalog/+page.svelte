@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { PageData } from "./$types";
-  let { data }: { data: PageData } = $props();
+  import { enhance } from "$app/forms";
+  import type { PageData, ActionData } from "./$types";
+  let { data, form }: { data: PageData; form: ActionData } = $props();
 
   function sessionKindLabel(kind: string) {
     return kind === "live" ? "Live" : kind === "group" ? "Group" : kind;
@@ -25,9 +26,15 @@
     const s = secs % 60;
     return `${m}m ${s}s`;
   }
+
+  const enrolledSet = $derived(new Set(data.enrolledIds));
 </script>
 
 <div class="stack">
+  {#if form?.error}
+    <div class="form-error">{form.error}</div>
+  {/if}
+
   <!-- Classes section -->
   <section>
     <h1 class="section-title">Classes</h1>
@@ -38,6 +45,7 @@
     {:else}
       <div class="class-grid">
         {#each data.classes as c (c.id)}
+          {@const isEnrolled = enrolledSet.has(c.id)}
           <div class="class-card">
             <div class="class-card-body">
               <h2 class="class-title">{c.title}</h2>
@@ -47,6 +55,17 @@
             </div>
             <div class="class-card-foot">
               <span class="status-pill">{c.status}</span>
+              {#if isEnrolled}
+                <form method="POST" action="?/unenroll" use:enhance>
+                  <input type="hidden" name="classId" value={c.id} />
+                  <button type="submit" class="enroll-btn enroll-btn--out">Unenroll</button>
+                </form>
+              {:else}
+                <form method="POST" action="?/enroll" use:enhance>
+                  <input type="hidden" name="classId" value={c.id} />
+                  <button type="submit" class="enroll-btn">Enroll</button>
+                </form>
+              {/if}
             </div>
           </div>
         {/each}
@@ -88,6 +107,13 @@
                     · {formatDuration(recs[0].startedAt, recs[0].endedAt)}
                   {/if}
                 </span>
+                {#each recs as rec (rec.id)}
+                  {#if rec.playbackUrl}
+                    <a class="watch-btn" href={rec.playbackUrl} target="_blank" rel="noopener">
+                      Watch
+                    </a>
+                  {/if}
+                {/each}
               {/if}
               {#if s.status === "live"}
                 <a class="join-btn" href={`/room/${s.sessionId}`}>Join →</a>
@@ -102,6 +128,15 @@
 
 <style>
   .stack > * + * { margin-top: 2rem; }
+
+  .form-error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    color: #f87171;
+    font-size: 0.875rem;
+  }
 
   .section-title {
     margin: 0 0 1rem;
@@ -154,6 +189,10 @@
   .class-card-foot {
     padding: 0.75rem 1.25rem;
     border-top: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
   }
   .status-pill {
     font-size: 0.75rem;
@@ -161,6 +200,25 @@
     letter-spacing: 0.04em;
     color: var(--muted);
   }
+
+  .enroll-btn {
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    transition: opacity 0.15s;
+  }
+  .enroll-btn:hover { opacity: 0.85; }
+  .enroll-btn--out {
+    background: transparent;
+    color: var(--muted);
+    border-color: var(--line);
+  }
+  .enroll-btn--out:hover { border-color: var(--muted); }
 
   /* Empty / locked states */
   .empty-state {
@@ -249,6 +307,20 @@
     color: var(--muted);
     white-space: nowrap;
   }
+
+  .watch-btn {
+    flex-shrink: 0;
+    padding: 0.3rem 0.75rem;
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: opacity 0.15s;
+  }
+  .watch-btn:hover { opacity: 0.8; }
 
   .join-btn {
     flex-shrink: 0;
