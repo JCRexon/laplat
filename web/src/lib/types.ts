@@ -49,6 +49,16 @@ export interface VerifyBegin {
   redirectUrl?: string;
 }
 
+// GET /v1/moderation/users — user list for the moderation dashboard.
+export interface UserSummary {
+  id: string;
+  handle: string;
+  displayName: string;
+  status: string;
+  canInstruct: boolean;
+  isPlatformModerator: boolean;
+}
+
 // GET /v1/recordings/sessions/{id}/playback — completed recordings (free tier).
 export interface RecordingView {
   id: string;

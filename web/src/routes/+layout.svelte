@@ -12,7 +12,13 @@
     {#if data.me}
       <nav>
         <a href="/catalog">Catalog</a>
+        {#if data.me.capabilities.includes("can_instruct")}
+          <a href="/classes">My classes</a>
+        {/if}
         <a href="/onboarding">My identity</a>
+        {#if data.me.capabilities.includes("platform_moderator")}
+          <a href="/admin">Moderation</a>
+        {/if}
       </nav>
       <div class="topbar-right">
         <span class="badge tier-{data.me.identityVerification}">
