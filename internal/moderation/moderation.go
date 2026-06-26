@@ -19,12 +19,13 @@ var (
 )
 
 // Repo is the persistence the service needs (*store.Store satisfies it). Every
-// method records its action to the audit log in the same transaction as the
-// mutation, so a moderator action never lands without its trail.
+// mutating method records its action to the audit log in the same transaction
+// as the mutation, so a moderator action never lands without its trail.
 type Repo interface {
 	SuspendUserAudited(ctx context.Context, in store.AuditInput) error
 	ReinstateUserAudited(ctx context.Context, in store.AuditInput) error
 	SetInstructorAudited(ctx context.Context, in store.AuditInput, grant bool) error
+	ListUsers(ctx context.Context, limit int) ([]store.User, error)
 }
 
 // Service performs moderator account actions.
@@ -72,6 +73,15 @@ func (s *Service) Reinstate(ctx context.Context, claims *contracts.AccessTokenCl
 		return ErrCannotReinstate
 	}
 	return nil
+}
+
+// ListUsers returns active and suspended users for the moderation dashboard.
+// Caller must be a platform moderator.
+func (s *Service) ListUsers(ctx context.Context, claims *contracts.AccessTokenClaims) ([]store.User, error) {
+	if !claims.HasCapability(contracts.CapPlatformModerator) {
+		return nil, ErrForbidden
+	}
+	return s.repo.ListUsers(ctx, 0)
 }
 
 // SetInstructor grants or revokes a user's can_instruct capability. Caller must

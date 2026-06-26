@@ -13,6 +13,9 @@
       <nav>
         <a href="/catalog">Catalog</a>
         <a href="/onboarding">My identity</a>
+        {#if data.me.capabilities.includes("platform_moderator")}
+          <a href="/admin">Moderation</a>
+        {/if}
       </nav>
       <div class="topbar-right">
         <span class="badge tier-{data.me.identityVerification}">

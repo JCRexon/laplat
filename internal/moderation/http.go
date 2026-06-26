@@ -1,6 +1,7 @@
 package moderation
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -20,6 +21,7 @@ type Handler struct {
 // NewHandler wires the service and validator and registers routes.
 func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h := &Handler{svc: svc, validator: validator, mux: http.NewServeMux()}
+	h.mux.Handle("GET /v1/moderation/users", h.auth(h.listUsers))
 	h.mux.Handle("POST /v1/moderation/users/{id}/suspend", h.auth(h.suspend))
 	h.mux.Handle("POST /v1/moderation/users/{id}/reinstate", h.auth(h.reinstate))
 	h.mux.Handle("POST /v1/moderation/users/{id}/instructor", h.auth(h.grantInstructor))
@@ -43,6 +45,35 @@ func (h *Handler) auth(next func(http.ResponseWriter, *http.Request, *contracts.
 		}
 		next(w, r, claims)
 	})
+}
+
+func (h *Handler) listUsers(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	users, err := h.svc.ListUsers(r.Context(), claims)
+	if err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	type userJSON struct {
+		ID                  string `json:"id"`
+		Handle              string `json:"handle"`
+		DisplayName         string `json:"displayName"`
+		Status              string `json:"status"`
+		CanInstruct         bool   `json:"canInstruct"`
+		IsPlatformModerator bool   `json:"isPlatformModerator"`
+	}
+	out := make([]userJSON, 0, len(users))
+	for _, u := range users {
+		out = append(out, userJSON{
+			ID:                  u.ID,
+			Handle:              u.Handle,
+			DisplayName:         u.DisplayName,
+			Status:              u.Status,
+			CanInstruct:         u.CanInstruct,
+			IsPlatformModerator: u.IsPlatformModerator,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"users": out})
 }
 
 func (h *Handler) suspend(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {

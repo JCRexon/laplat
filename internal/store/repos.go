@@ -97,6 +97,36 @@ func (s *Store) GetUserByHandle(ctx context.Context, handle string) (User, error
 	return s.q.GetUserByHandle(ctx, handle)
 }
 
+// ListUsers returns non-deleted users ordered by creation time, newest first.
+// limit caps the result set; pass 0 for the default cap of 200.
+func (s *Store) ListUsers(ctx context.Context, limit int) ([]User, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, handle, display_name, bio, locale, status,
+		       can_instruct, is_platform_moderator, token_version, created_at, deleted_at
+		FROM users
+		WHERE deleted_at IS NULL
+		ORDER BY created_at DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Handle, &u.DisplayName, &u.Bio, &u.Locale,
+			&u.Status, &u.CanInstruct, &u.IsPlatformModerator, &u.TokenVersion,
+			&u.CreatedAt, &u.DeletedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
 // ActivateUser flips a user to active. The DB rejects this unless a verified
 // adult identity exists (trg_enforce_adult_activation), so a caller cannot
 // activate an unverified or under-age account even by mistake.
