@@ -72,7 +72,12 @@ const (
 	// recordings can be downloaded (e.g. "http://localhost:9090" for the local
 	// nginx static-file server). When set, the playback endpoint appends the
 	// relative filename to build a playbackUrl for the client.
-	EnvRecordingsBaseURL    = "LAPLAT_RECORDINGS_BASE_URL"
+	EnvRecordingsBaseURL = "LAPLAT_RECORDINGS_BASE_URL"
+	// EnvRecordingsSecret is the HMAC-MD5 key shared with nginx's secure_link
+	// module. When set, playbackUrls include a signed expiry token so nginx
+	// can verify them without calling authd on every range request. Optional:
+	// when unset the URLs are unsigned (dev-only behaviour).
+	EnvRecordingsSecret     = "LAPLAT_RECORDINGS_SECRET"
 	defaultEgressFilePrefix = "/out/"
 
 	// DEV ONLY. When truthy, email/phone OTP login falls back to a console
@@ -136,6 +141,10 @@ type LiveKitConfig struct {
 	// (e.g. "http://localhost:9090"). When set the playback endpoint returns a
 	// playbackUrl field clients can navigate to directly. Optional.
 	RecordingsBaseURL string
+	// RecordingsSecret is the HMAC-MD5 key for nginx secure_link URL signing.
+	// When set, playbackUrls carry a signed expiry so nginx can authenticate
+	// downloads without a subrequest to authd. Optional (dev: leave unset).
+	RecordingsSecret string
 }
 
 // SMTPConfig is the (optional) email-OTP transport configuration.
@@ -315,10 +324,12 @@ func parseLiveKit(getenv func(string) string) (*LiveKitConfig, error) {
 		filePrefix = defaultEgressFilePrefix
 	}
 	recordingsBase := strings.TrimRight(strings.TrimSpace(getenv(EnvRecordingsBaseURL)), "/")
+	recordingsSecret := strings.TrimSpace(getenv(EnvRecordingsSecret))
 	return &LiveKitConfig{
 		APIKey: key, APISecret: secret, URL: url,
 		HTTPURL: httpURL, FilePrefix: filePrefix,
 		RecordingsBaseURL: recordingsBase,
+		RecordingsSecret:  recordingsSecret,
 	}, nil
 }
 
