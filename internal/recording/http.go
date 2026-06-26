@@ -1,11 +1,15 @@
 package recording
 
 import (
+	"crypto/md5"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/jcrexon/laplat/internal/livekit"
 	"github.com/jcrexon/laplat/internal/store"
@@ -16,14 +20,15 @@ import (
 // Handler is the recording control HTTP surface. It self-authenticates via the
 // access-token validator; the service enforces host-only control.
 type Handler struct {
-	svc            *Service
-	validator      *token.Validator
-	apiKey         string // LiveKit API key for webhook issuer check
-	apiSecret      string // LiveKit API secret for webhook verification
-	recordingsBase string // public base URL for playback links (optional)
-	filePrefix     string // file prefix to strip when building playback URLs
-	log            *slog.Logger
-	mux            *http.ServeMux
+	svc              *Service
+	validator        *token.Validator
+	apiKey           string // LiveKit API key for webhook issuer check
+	apiSecret        string // LiveKit API secret for webhook verification
+	recordingsBase   string // public base URL for playback links (optional)
+	filePrefix       string // file prefix to strip when building playback URLs
+	recordingsSecret string // HMAC-MD5 key for nginx secure_link signing (optional)
+	log              *slog.Logger
+	mux              *http.ServeMux
 }
 
 // NewHandler wires the service, validator, and LiveKit credentials, then
@@ -32,10 +37,13 @@ type Handler struct {
 // recordingsBase (e.g. "http://localhost:9090") and filePrefix (e.g. "/out/")
 // are used together to build playbackUrl values in the playback endpoint.
 // Both are optional: when recordingsBase is empty no playbackUrl is produced.
-func NewHandler(svc *Service, validator *token.Validator, apiKey, apiSecret, recordingsBase, filePrefix string, log *slog.Logger) *Handler {
+// recordingsSecret is the HMAC-MD5 key shared with nginx's secure_link module;
+// when non-empty, playbackUrls carry a signed expiry (see buildPlaybackURL).
+func NewHandler(svc *Service, validator *token.Validator, apiKey, apiSecret, recordingsBase, filePrefix, recordingsSecret string, log *slog.Logger) *Handler {
 	h := &Handler{
 		svc: svc, validator: validator, apiKey: apiKey, apiSecret: apiSecret,
-		recordingsBase: recordingsBase, filePrefix: filePrefix, log: log,
+		recordingsBase: recordingsBase, filePrefix: filePrefix,
+		recordingsSecret: recordingsSecret, log: log,
 		mux: http.NewServeMux(),
 	}
 	// Host-only recording controls.
@@ -122,6 +130,12 @@ func (h *Handler) playback(w http.ResponseWriter, r *http.Request, _ *contracts.
 // buildPlaybackURL converts an outputUri (e.g. "/out/room.mp4") to a public
 // playback URL (e.g. "http://localhost:9090/room.mp4") by stripping filePrefix
 // and prepending recordingsBase. Returns "" when recordingsBase is unset.
+//
+// When recordingsSecret is set, the URL is signed for nginx's secure_link
+// module: ?md5=HASH&expires=UNIX is appended, where HASH is the base64url
+// MD5 of "$expires$path $secret" (the format secure_link_md5 expects).
+// nginx validates the signature in-process — no subrequest on every range
+// request, which matters for video scrubbing.
 func (h *Handler) buildPlaybackURL(outputURI string) string {
 	if h.recordingsBase == "" || outputURI == "" {
 		return ""
@@ -134,7 +148,14 @@ func (h *Handler) buildPlaybackURL(outputURI string) string {
 	if strings.Contains(rel, "..") {
 		return ""
 	}
-	return h.recordingsBase + rel
+	base := h.recordingsBase + rel
+	if h.recordingsSecret == "" {
+		return base
+	}
+	expiry := time.Now().Add(time.Hour).Unix()
+	sum := md5.Sum([]byte(fmt.Sprintf("%d%s %s", expiry, rel, h.recordingsSecret)))
+	token := base64.RawURLEncoding.EncodeToString(sum[:])
+	return fmt.Sprintf("%s?md5=%s&expires=%d", base, token, expiry)
 }
 
 // liveKitWebhook receives egress lifecycle events from the LiveKit server. The

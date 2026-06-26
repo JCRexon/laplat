@@ -33,6 +33,7 @@ export interface SessionSummary {
   kind: string;
   status: string;
   room: string;
+  scheduledStart?: string; // RFC3339
 }
 
 // POST /v1/sessions/{id}/join — the LiveKit connection grant.

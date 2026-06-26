@@ -132,6 +132,9 @@ services:
       LAPLAT_LIVEKIT_FILE_PREFIX: /out
       # Base URL of the nginx recordings server (host-accessible for browser playback).
       LAPLAT_RECORDINGS_BASE_URL: http://localhost:9090
+      # Shared secret for nginx secure_link URL signing. Must match RECORDINGS_SECRET
+      # in the nginx service. DEV value — use a real secret in production.
+      LAPLAT_RECORDINGS_SECRET: devrecordingssecret
     # Retry if it starts before Postgres is ready (startup DB ping fails -> exit).
     restart: on-failure
     healthcheck:
@@ -147,14 +150,19 @@ services:
     ports:
       - "8080:8080" # exposed for debugging; the web BFF reaches authd in-network
 
-  # Serves completed recording files from the shared named volume. Browser
-  # clients use http://localhost:9090/<filename> for playback.
-  # DEV ONLY: this nginx instance has no auth. In production, either gate
-  # downloads with nginx auth_request → authd, or issue signed/expiring URLs.
+  # Serves completed recording files from the shared named volume. nginx
+  # validates download requests using its built-in secure_link module: authd
+  # signs each playbackUrl with a 1-hour HMAC-MD5 token (shared secret below),
+  # and nginx rejects unsigned or expired requests without calling authd.
   nginx:
     image: nginx:alpine
     volumes:
       - recordings:/usr/share/nginx/html:ro
+      - ./dev/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      RECORDINGS_SECRET: devrecordingssecret
+      # Limit envsubst to only our variable so nginx's $uri/$arg_* are preserved.
+      NGINX_ENVSUBST_TEMPLATE_VARS: RECORDINGS_SECRET
     ports:
       - "9090:80"
     depends_on:

@@ -4,7 +4,7 @@ A running snapshot of where the project is and what's next, so a fresh session
 (or a returning human) can get up to speed without re-reading the whole chat
 history. Update the "Current state" and "Next tasks" sections as work lands.
 
-_Last updated: 2026-06-26 — after playback serving, class enrollment, and security hardening (PRs #33–#35)._
+_Last updated: 2026-06-26 — after social sign-in, admin/class/session UI, and nginx secure_link (PRs #36–#37)._
 
 ## What laplat is
 
@@ -60,8 +60,15 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
 
 ## Current state (built + merged)
 
-- Auth: token mint/rotate, OIDC federation (Google/Apple; Zalo in review),
-  email/phone OTP (with a dev-console sender), identity tiers + eKYC hook.
+- Auth: token mint/rotate, email/phone OTP (with a dev-console sender), identity
+  tiers + eKYC hook.
+- **Social sign-in** (PR #36): Google and Apple via OIDC; SvelteKit BFF proxy
+  routes at `/v1/auth/oidc/[provider]/start` and `/v1/auth/oidc/[provider]/callback`
+  re-set cookies with the correct `Secure` flag for the serving environment
+  (authd hardcodes `Secure: true`, which breaks plain HTTP dev). Zalo omitted
+  until the provider review clears.
+  - **To enable**: set `LAPLAT_OIDC_*` env vars and `LAPLAT_OIDC_REDIRECT_BASE`
+    to the SvelteKit origin (e.g. `http://localhost:5173` in dev).
 - Class catalog, live sessions (LiveKit room grants), instructor onboarding
   (self-apply + moderator grant/revoke), platform moderation.
 - Append-only **audit log** (`internal/audit`, `internal/store/audit.go`).
@@ -76,37 +83,47 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
   `/v1/recordings/sessions/{id}`. Egress client in `internal/livekit/egress.go`
   (stdlib Twirp/JSON, roomRecord JWT). Output: local-file behind a pluggable
   client (S3/GCS snap in later).
-- **LiveKit media-infra slice** (this PR):
-  - `compose.yaml` now runs `redis` + `livekit/livekit-server` + `livekit/egress`
-    alongside authd; `LAPLAT_LIVEKIT_*` env vars are wired so live sessions and
-    recording work end-to-end with `docker compose up --build`.
-  - Dev configs live in `dev/livekit.yaml` and `dev/egress.yaml` (DEV-only keys;
-    egress writes to a named Docker volume `recordings`).
+- **LiveKit media-infra slice** (PR #37):
+  - `compose.yaml` runs `redis` + `livekit/livekit-server` + `livekit/egress`
+    alongside authd; all `LAPLAT_LIVEKIT_*` env vars are wired so live sessions
+    and recording work end-to-end with `docker compose up --build`.
+  - Dev configs: `dev/livekit.yaml` and `dev/egress.yaml` (DEV-only keys; egress
+    writes to the named Docker volume `recordings`).
   - **Webhook ingest**: `internal/livekit/webhook.go` verifies the LiveKit HS256
     JWT (signing input + body SHA-256 claim); `POST /v1/webhooks/livekit` applies
-    `egress_started`/`egress_updated`/`egress_ended` events to the recording row
-    via `recording.Service.HandleWebhookEvent` → `store.UpdateRecordingStatus`,
-    landing the async `completed`/`failed` status and `output_uri`.
+    `egress_started`/`egress_updated`/`egress_ended` → `store.UpdateRecordingStatus`.
   - **Playback**: `GET /v1/recordings/sessions/{id}/playback` returns completed
     recordings for any authenticated user (free-recording floor, `none` tier).
   - **Catalog UI polish**: class cards in a responsive grid, session list with
     live/scheduled/ended status badges, recording count shown inline per session.
 - **Playback serving** (PR #33): nginx:alpine on port 9090 serves completed
-  recordings from the shared `recordings` named volume. `authd` builds a
-  `playbackUrl` by stripping `LAPLAT_LIVEKIT_FILE_PREFIX` from `outputUri` and
-  prepending `LAPLAT_RECORDINGS_BASE_URL`. Catalog shows Watch links.
-  DEV ONLY: nginx has no auth; production needs `auth_request` → authd or
-  signed/expiring URLs.
+  recordings from the shared `recordings` named volume.
+- **nginx secure_link** (current branch): playback URLs are now HMAC-MD5 signed
+  with a 1-hour expiry. `authd` computes `md5("$expires$path $secret")` (base64url)
+  and appends `?md5=HASH&expires=UNIX`. nginx validates in-process via its
+  `secure_link` module — zero subrequests per range request (critical for video
+  scrubbing). Shared secret in `LAPLAT_RECORDINGS_SECRET` / compose env var
+  `RECORDINGS_SECRET` (dev value: `devrecordingssecret`).
+  - `NGINX_ENVSUBST_TEMPLATE_VARS: RECORDINGS_SECRET` limits envsubst so nginx's
+    own `$uri`, `$arg_*`, `$secure_link*` variables survive template processing.
 - **Class enrollment** (PR #33): `class_members` table (migration 00015); store
-  methods `EnrollClass`/`UnenrollClass`/`IsEnrolled`/etc.; service layer with
-  declared-tier gate (Decree 147 adult self-attestation); HTTP at
-  `POST/DELETE /v1/classes/{id}/enroll` and `GET /v1/classes/enrolled`.
-  Catalog shows Enroll/Unenroll buttons (progressive enhancement via `use:enhance`).
+  methods; declared-tier gate; HTTP at `POST/DELETE /v1/classes/{id}/enroll`.
+  Catalog shows Enroll/Unenroll buttons.
 - **Security hardening** (PRs #34–#35):
   - `buildPlaybackURL` rejects `outputUri` containing `..`
-  - Enroll/unenroll actions validate `classId` non-empty (400 otherwise)
-  - `ParseWebhook` now enforces JWT `exp`/`nbf` (30s clock-skew) and verifies
-    `iss` == `apiKey`; takes `apiKey` as an explicit parameter.
+  - `ParseWebhook` enforces JWT `exp`/`nbf` (30s clock-skew) and `iss` == `apiKey`.
+- **Moderation dashboard** (`web/src/routes/admin/`) — `platform_moderator` gated:
+  - User list from `GET /v1/moderation/users` (new endpoint in `internal/moderation`).
+  - Per-row: Suspend/Reinstate, Grant instructor / Revoke instructor.
+  - Nav link "Moderation" shown only to moderators.
+- **Instructor class management** (`web/src/routes/classes/`) — `can_instruct` gated:
+  - Create draft, publish/unpublish/archive transitions.
+  - **Session management** (current branch): per-class session list fetched from
+    `GET /v1/sessions?classId=X`; "Schedule session" form (kind=class, optional
+    `scheduledStart`); Start / Enter room / End session controls per session status.
+  - Session statuses: `scheduled` → `live` → `ended`. Start and End buttons POST
+    to `?/startSession` and `?/endSession` actions via `use:enhance` (no reload).
+  - Nav link "My classes" shown only to instructors.
 - Frontend: SvelteKit + adapter-node BFF (tokens in httpOnly cookies,
   server-side load/actions) — chosen to minimise client-side data storage.
 - Local stack: Docker Compose (`compose.yaml`) — db → migrate → seed → authd →
@@ -124,14 +141,27 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
 
 ## Next tasks (pick one)
 
-1. **Payments / entitlements** (last priority). The free-recording floor is live;
-   paid content is the next tier. Needs: payment-provider integration
-   (Stripe / VNPay), an `entitlements` table, a purchase flow, and an
-   entitlement check in the playback endpoint (replacing the free-only stub).
-   The enrollment service already has a stub comment for the entitlement gate.
+1. **Payments / entitlements**. The free-recording floor is live; paid content
+   is the next tier. Needs: payment-provider integration (Stripe / VNPay), an
+   `entitlements` table, a purchase flow, and an entitlement check in the
+   playback endpoint (replacing the free-only stub). The enrollment service
+   already has a stub comment for the entitlement gate.
 
-2. **Zalo OIDC** (in review). Wire the Zalo sign-in flow end-to-end once
-   the provider review clears.
+2. **Zalo OIDC**. Wire the Zalo sign-in flow end-to-end once the provider review
+   clears. The Go backend already has a `providers["VN"]` slot; the SvelteKit
+   proxy routes support any `[provider]` slug.
+
+3. **Learner session UI**. The instructor can now start/end sessions from
+   `/classes`. Learners see live sessions in the catalog (`/catalog`) with a
+   Join button that POSTs to `POST /v1/sessions/{id}/join` and redirects to
+   `/room/{id}`. The room page exists but the catalog doesn't surface join links
+   dynamically based on live status — add a polling or SSE refresh so "Live now"
+   appears without a manual reload.
+
+4. **Recording playback in the room page**. After a session ends, the instructor
+   (and enrolled learners) should be able to play back recordings from the room
+   page or the class detail view. `GET /v1/recordings/sessions/{id}/playback`
+   is already implemented; just needs a UI surface.
 
 ## Verification commands
 

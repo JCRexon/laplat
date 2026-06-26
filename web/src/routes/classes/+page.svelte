@@ -10,7 +10,12 @@
     archived: "Archived",
   };
 
-  // Next valid transitions for each status.
+  const SESSION_STATUS_LABEL: Record<string, string> = {
+    scheduled: "Scheduled",
+    live: "Live",
+    ended: "Ended",
+  };
+
   const TRANSITIONS: Record<string, { label: string; value: string }[]> = {
     draft: [{ label: "Publish", value: "published" }],
     published: [
@@ -28,7 +33,7 @@
     <div class="form-error">{form.error}</div>
   {/if}
 
-  <!-- Create form -->
+  <!-- Create class form -->
   <details class="create-box">
     <summary>+ New class</summary>
     <form method="POST" action="?/create" use:enhance class="create-form">
@@ -66,6 +71,54 @@
               </form>
             {/each}
           </div>
+
+          <!-- Sessions section -->
+          <details class="sessions-box">
+            <summary class="sessions-summary">
+              Sessions{#if c.sessions.some(s => s.status === "live")} <span class="live-indicator">● Live</span>{/if}
+              ({c.sessions.length})
+            </summary>
+
+            {#if c.sessions.length > 0}
+              <div class="session-list">
+                {#each c.sessions as s (s.sessionId)}
+                  <div class="session-row">
+                    <span class="sess-badge s-sess-{s.status}">{SESSION_STATUS_LABEL[s.status] ?? s.status}</span>
+                    {#if s.scheduledStart}
+                      <span class="sess-time">{new Date(s.scheduledStart).toLocaleString()}</span>
+                    {/if}
+                    <div class="sess-actions">
+                      {#if s.status === "scheduled"}
+                        <form method="POST" action="?/startSession" use:enhance>
+                          <input type="hidden" name="sessionId" value={s.sessionId} />
+                          <button type="submit" class="btn-sm btn-go-live">Start</button>
+                        </form>
+                        <a href="/room/{s.sessionId}" class="btn-sm">Enter room</a>
+                      {:else if s.status === "live"}
+                        <a href="/room/{s.sessionId}" class="btn-sm btn-go-live">Enter room</a>
+                        <form method="POST" action="?/endSession" use:enhance>
+                          <input type="hidden" name="sessionId" value={s.sessionId} />
+                          <button type="submit" class="btn-sm btn-end">End session</button>
+                        </form>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <p class="muted no-sessions">No sessions yet.</p>
+            {/if}
+
+            <!-- New session form -->
+            <form method="POST" action="?/createSession" use:enhance class="new-session-form">
+              <input type="hidden" name="classId" value={c.id} />
+              <label class="inline-label">
+                Scheduled start (optional)
+                <input type="datetime-local" name="scheduledStart" />
+              </label>
+              <button type="submit" class="btn-sm">+ Schedule session</button>
+            </form>
+          </details>
         </div>
       {/each}
     </div>
@@ -159,6 +212,106 @@
     margin-top: 0.5rem;
   }
 
+  /* Sessions section */
+  .sessions-box {
+    margin-top: 0.75rem;
+    border-top: 1px solid #f3f4f6;
+    padding-top: 0.6rem;
+  }
+
+  .sessions-summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #6b7280;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .sessions-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .sessions-summary::before {
+    content: "▶";
+    font-size: 0.65rem;
+    transition: transform 0.15s;
+  }
+
+  details[open] .sessions-summary::before {
+    transform: rotate(90deg);
+  }
+
+  .live-indicator {
+    color: #059669;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 0.6rem 0;
+  }
+
+  .session-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    padding: 0.4rem 0.5rem;
+    background: #f9fafb;
+    border-radius: 6px;
+    font-size: 0.85rem;
+  }
+
+  .sess-time {
+    color: #6b7280;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sess-actions {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+  }
+
+  .no-sessions {
+    font-size: 0.85rem;
+    margin: 0.4rem 0;
+  }
+
+  .new-session-form {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+
+  .inline-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: #6b7280;
+  }
+
+  .inline-label input {
+    padding: 0.2rem 0.4rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-family: inherit;
+  }
+
+  /* Badges */
   .badge {
     display: inline-block;
     padding: 0.15rem 0.5rem;
@@ -182,6 +335,31 @@
     color: #6b7280;
   }
 
+  .sess-badge {
+    display: inline-block;
+    padding: 0.1rem 0.45rem;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .s-sess-scheduled {
+    background: #e0f2fe;
+    color: #0369a1;
+  }
+
+  .s-sess-live {
+    background: #d1fae5;
+    color: #065f46;
+  }
+
+  .s-sess-ended {
+    background: #f3f4f6;
+    color: #9ca3af;
+  }
+
+  /* Buttons */
   .btn-sm {
     padding: 0.25rem 0.65rem;
     font-size: 0.8rem;
@@ -190,6 +368,10 @@
     background: #fff;
     cursor: pointer;
     white-space: nowrap;
+    text-decoration: none;
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
   }
 
   .btn-published {
@@ -218,5 +400,25 @@
 
   .btn-archived:hover {
     background: #e5e7eb;
+  }
+
+  .btn-go-live {
+    background: #d1fae5;
+    color: #065f46;
+    border-color: #6ee7b7;
+  }
+
+  .btn-go-live:hover {
+    background: #6ee7b7;
+  }
+
+  .btn-end {
+    background: #fee2e2;
+    color: #991b1b;
+    border-color: #fca5a5;
+  }
+
+  .btn-end:hover {
+    background: #fca5a5;
   }
 </style>
