@@ -129,6 +129,10 @@ func (h *Handler) buildPlaybackURL(outputURI string) string {
 	if !strings.HasPrefix(rel, "/") {
 		rel = "/" + rel
 	}
+	// Reject paths that traverse above the served directory.
+	if strings.Contains(rel, "..") {
+		return ""
+	}
 	return h.recordingsBase + rel
 }
 

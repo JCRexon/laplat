@@ -60,6 +60,7 @@ export const actions: Actions = {
   enroll: async ({ cookies, request }) => {
     const form = await request.formData();
     const classId = form.get("classId") as string;
+    if (!classId) return fail(400, { error: "Missing class ID." });
     try {
       await api(cookies, `/v1/classes/${classId}/enroll`, { method: "POST" });
     } catch (e) {
@@ -73,6 +74,7 @@ export const actions: Actions = {
   unenroll: async ({ cookies, request }) => {
     const form = await request.formData();
     const classId = form.get("classId") as string;
+    if (!classId) return fail(400, { error: "Missing class ID." });
     await api(cookies, `/v1/classes/${classId}/enroll`, { method: "DELETE" });
   },
 };

@@ -149,6 +149,8 @@ services:
 
   # Serves completed recording files from the shared named volume. Browser
   # clients use http://localhost:9090/<filename> for playback.
+  # DEV ONLY: this nginx instance has no auth. In production, either gate
+  # downloads with nginx auth_request → authd, or issue signed/expiring URLs.
   nginx:
     image: nginx:alpine
     volumes:
