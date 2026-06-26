@@ -8,12 +8,6 @@
     return "Scheduled";
   }
 
-  function statusClass(status: string) {
-    if (status === "live") return "s-live";
-    if (status === "ended") return "s-ended";
-    return "s-scheduled";
-  }
-
   function formatTime(iso: string) {
     return new Date(iso).toLocaleString(undefined, {
       dateStyle: "medium",

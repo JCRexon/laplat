@@ -5,7 +5,6 @@ import type { ClassView, SessionSummary, RecordingView } from "$lib/types";
 
 export interface EnrolledClass extends ClassView {
   sessions: SessionSummary[];
-  recordingsBySession: Record<string, RecordingView[]>;
 }
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
@@ -52,7 +51,6 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
   const classes: EnrolledClass[] = enrolled.map((c, i) => ({
     ...c,
     sessions: sessionsPerClass[i],
-    recordingsBySession,
   }));
 
   return { classes, recordingsBySession };
