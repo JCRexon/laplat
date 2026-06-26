@@ -215,7 +215,9 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		apiMux.Handle("/v1/recordings/", recording.NewHandler(recordingSvc, validator))
+		recHandler := recording.NewHandler(recordingSvc, validator, cfg.LiveKit.APISecret, log)
+		apiMux.Handle("/v1/recordings/", recHandler)
+		apiMux.Handle("/v1/webhooks/", recHandler)
 		// D-2: a consent withdrawal must stop an in-flight recording. Reconcile
 		// best-effort after any consent change; failures are logged, not fatal,
 		// since the (committed) ledger is the source of truth.

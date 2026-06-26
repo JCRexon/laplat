@@ -1,44 +1,265 @@
 <script lang="ts">
   import type { PageData } from "./$types";
   let { data }: { data: PageData } = $props();
+
+  function sessionKindLabel(kind: string) {
+    return kind === "live" ? "Live" : kind === "group" ? "Group" : kind;
+  }
+
+  function statusBadgeClass(status: string) {
+    if (status === "live") return "status-live";
+    if (status === "ended") return "status-ended";
+    return "status-scheduled";
+  }
+
+  function statusLabel(status: string) {
+    if (status === "live") return "● Live now";
+    if (status === "ended") return "Ended";
+    return "Scheduled";
+  }
+
+  function formatDuration(startedAt: number, endedAt?: number): string {
+    if (!endedAt) return "";
+    const secs = endedAt - startedAt;
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}m ${s}s`;
+  }
 </script>
 
 <div class="stack">
-  <section class="card">
-    <h1>Classes</h1>
+  <!-- Classes section -->
+  <section>
+    <h1 class="section-title">Classes</h1>
     {#if data.classes.length === 0}
-      <p class="muted">No published classes yet.</p>
+      <div class="empty-state">
+        <p class="muted">No published classes yet.</p>
+      </div>
     {:else}
-      <ul class="list">
+      <div class="class-grid">
         {#each data.classes as c (c.id)}
-          <li>
-            <strong>{c.title}</strong>
-            <p class="muted small">{c.description}</p>
-          </li>
+          <div class="class-card">
+            <div class="class-card-body">
+              <h2 class="class-title">{c.title}</h2>
+              {#if c.description}
+                <p class="class-desc muted">{c.description}</p>
+              {/if}
+            </div>
+            <div class="class-card-foot">
+              <span class="status-pill">{c.status}</span>
+            </div>
+          </div>
         {/each}
-      </ul>
+      </div>
     {/if}
   </section>
 
-  <section class="card">
-    <h2>Live &amp; scheduled sessions</h2>
+  <!-- Sessions section -->
+  <section>
+    <h2 class="section-title section-title-sm">Live &amp; scheduled sessions</h2>
     {#if data.sessionsLocked}
-      <p class="muted">
-        Verify you're 18+ on <a href="/onboarding">My identity</a> to see session schedules.
-      </p>
+      <div class="locked-notice">
+        <span class="lock-icon">🔒</span>
+        <span>
+          Verify you're 18+ on <a href="/onboarding" class="text-link">My identity</a>
+          to see session schedules.
+        </span>
+      </div>
     {:else if data.sessions.length === 0}
-      <p class="muted">No sessions right now.</p>
+      <div class="empty-state">
+        <p class="muted">No sessions right now.</p>
+      </div>
     {:else}
-      <ul class="list">
+      <ul class="session-list">
         {#each data.sessions as s (s.sessionId)}
-          <li class="row spread">
-            <span><strong>{s.kind}</strong> · {s.status}</span>
-            {#if s.status === "live"}
-              <a class="btn-link" href={`/room/${s.sessionId}`}>Join</a>
-            {/if}
+          {@const recs = data.recordingsBySession[s.sessionId] ?? []}
+          <li class="session-row">
+            <div class="session-meta">
+              <span class="session-kind">{sessionKindLabel(s.kind)}</span>
+              <span class="status-dot {statusBadgeClass(s.status)}">
+                {statusLabel(s.status)}
+              </span>
+            </div>
+            <div class="session-actions">
+              {#if recs.length > 0}
+                <span class="rec-badge" title="Recording available">
+                  ⏺ {recs.length} recording{recs.length > 1 ? "s" : ""}
+                  {#if recs[0].endedAt}
+                    · {formatDuration(recs[0].startedAt, recs[0].endedAt)}
+                  {/if}
+                </span>
+              {/if}
+              {#if s.status === "live"}
+                <a class="join-btn" href={`/room/${s.sessionId}`}>Join →</a>
+              {/if}
+            </div>
           </li>
         {/each}
       </ul>
     {/if}
   </section>
 </div>
+
+<style>
+  .stack > * + * { margin-top: 2rem; }
+
+  .section-title {
+    margin: 0 0 1rem;
+    font-size: 1.4rem;
+    font-weight: 700;
+  }
+  .section-title-sm {
+    font-size: 1.1rem;
+  }
+
+  /* Class grid */
+  .class-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1rem;
+  }
+
+  .class-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .class-card:hover {
+    border-color: var(--accent);
+  }
+
+  .class-card-body {
+    padding: 1.25rem 1.25rem 0.75rem;
+    flex: 1;
+  }
+  .class-title {
+    margin: 0 0 0.4rem;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .class-desc {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .class-card-foot {
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--line);
+  }
+  .status-pill {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  /* Empty / locked states */
+  .empty-state {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+  }
+  .locked-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .lock-icon { font-size: 1.1rem; }
+  .text-link { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .text-link:hover { text-decoration: underline; }
+
+  /* Sessions list */
+  .session-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .session-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.9rem 1.25rem;
+    border-bottom: 1px solid var(--line);
+    gap: 0.75rem;
+  }
+  .session-row:last-child { border-bottom: none; }
+
+  .session-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+  }
+  .session-kind {
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+  }
+
+  .status-dot {
+    font-size: 0.8rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .status-live {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+  }
+  .status-scheduled {
+    background: rgba(99, 102, 241, 0.12);
+    color: #818cf8;
+  }
+  .status-ended {
+    background: rgba(139, 151, 168, 0.12);
+    color: var(--muted);
+  }
+
+  .session-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  .rec-badge {
+    font-size: 0.78rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .join-btn {
+    flex-shrink: 0;
+    padding: 0.4rem 0.9rem;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: opacity 0.15s;
+  }
+  .join-btn:hover { opacity: 0.85; }
+</style>

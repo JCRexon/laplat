@@ -1,0 +1,8 @@
+# DEV ONLY – credentials are public, never use outside compose.
+# Mounted read-only into the egress container as /etc/egress.yaml.
+api_key: devkey
+api_secret: devsecret
+ws_url: ws://livekit:7880
+health_port: 8081
+log_level: warn
+local_directory: /out

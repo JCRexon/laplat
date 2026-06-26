@@ -54,6 +54,8 @@ type Repo interface {
 	UpdateRecordingStatus(ctx context.Context, id, status string, terminal bool, outputURI, errMsg *string) error
 	ActiveRecording(ctx context.Context, sessionID string) (store.Recording, bool, error)
 	RecordingsBySession(ctx context.Context, sessionID string) ([]store.Recording, error)
+	RecordingByEgress(ctx context.Context, egressID string) (store.Recording, bool, error)
+	CompletedRecordingsBySession(ctx context.Context, sessionID string) ([]store.Recording, error)
 }
 
 // Service orchestrates recording start/stop behind the consent gate.
@@ -228,6 +230,40 @@ func isTerminal(status string) bool {
 	default:
 		return false
 	}
+}
+
+// HandleWebhookEvent applies a verified LiveKit egress webhook event to the
+// matching recording row. Unknown egress IDs are silently ignored — duplicate or
+// out-of-order webhook deliveries are safe.
+func (s *Service) HandleWebhookEvent(ctx context.Context, ev *livekit.WebhookEvent) error {
+	if ev.EgressInfo == nil {
+		return nil // not an egress lifecycle event
+	}
+	rec, ok, err := s.repo.RecordingByEgress(ctx, ev.EgressInfo.EgressID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil // unknown egress id; stale or out-of-scope webhook
+	}
+	status := mapStatus(ev.EgressInfo.Status)
+	terminal := isTerminal(status)
+	var outURI *string
+	if o := ev.EgressInfo.Output(); o != "" {
+		outURI = &o
+	}
+	var errMsg *string
+	if ev.EgressInfo.Error != "" {
+		errMsg = &ev.EgressInfo.Error
+	}
+	return s.repo.UpdateRecordingStatus(ctx, rec.ID, status, terminal, outURI, errMsg)
+}
+
+// ListCompleted returns completed recordings for a session. Any authenticated
+// user may call this (free-recording floor per ACCESS-MODEL; paid recordings
+// will add an entitlement check once payments are built).
+func (s *Service) ListCompleted(ctx context.Context, sessionID string) ([]store.Recording, error) {
+	return s.repo.CompletedRecordingsBySession(ctx, sessionID)
 }
 
 // newID returns a 26-char Crockford-base32 record id (ULID-shaped, identity

@@ -71,6 +71,42 @@ func (s *Store) ActiveRecording(ctx context.Context, sessionID string) (Recordin
 	return r, true, nil
 }
 
+// RecordingByEgress returns the recording with the given LiveKit egress id.
+// ok is false when no recording carries that egress id (e.g. stale webhook).
+func (s *Store) RecordingByEgress(ctx context.Context, egressID string) (Recording, bool, error) {
+	r, err := s.scanRecording(s.pool.QueryRow(ctx, recordingCols+`
+		FROM recordings WHERE egress_id = $1 LIMIT 1`, egressID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Recording{}, false, nil
+	}
+	if err != nil {
+		return Recording{}, false, err
+	}
+	return r, true, nil
+}
+
+// CompletedRecordingsBySession returns completed recordings for a session, newest first.
+// Used by the playback endpoint (free-tier floor; entitlement checks for paid
+// recordings come once the payment system is built).
+func (s *Store) CompletedRecordingsBySession(ctx context.Context, sessionID string) ([]Recording, error) {
+	rows, err := s.pool.Query(ctx, recordingCols+`
+		FROM recordings WHERE session_id = $1 AND status = 'completed'
+		ORDER BY started_at DESC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Recording
+	for rows.Next() {
+		r, err := s.scanRecording(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // RecordingsBySession returns a session's recordings, newest first.
 func (s *Store) RecordingsBySession(ctx context.Context, sessionID string) ([]Recording, error) {
 	rows, err := s.pool.Query(ctx, recordingCols+`
