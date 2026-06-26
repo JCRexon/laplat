@@ -1,6 +1,17 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { PageData } from "./$types";
   let { data }: { data: PageData } = $props();
+
+  // Scheduled times are shown in the viewer's locale + timezone. That can only
+  // be done on the client: formatting during SSR would use the server's
+  // timezone, so the markup would differ on hydration. Gate the formatted time
+  // behind `mounted` so server and first client render agree (both show the
+  // placeholder), then the real local time fills in after mount.
+  let mounted = $state(false);
+  onMount(() => {
+    mounted = true;
+  });
 
   function statusLabel(status: string) {
     if (status === "live") return "● Live now";
@@ -65,7 +76,9 @@
                   <div class="session-info">
                     <span class="sess-badge s-scheduled">{statusLabel(s.status)}</span>
                     {#if s.scheduledStart}
-                      <span class="sess-label">{formatTime(s.scheduledStart)}</span>
+                      <span class="sess-label">
+                        {#if mounted}{formatTime(s.scheduledStart)}{:else}<span class="time-skeleton"></span>{/if}
+                      </span>
                     {:else}
                       <span class="sess-label muted">Time TBC</span>
                     {/if}
@@ -245,6 +258,18 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* Holds horizontal space for the localized time until it renders on mount,
+     so the row doesn't jump when the client-formatted time fills in. */
+  .time-skeleton {
+    display: inline-block;
+    width: 9rem;
+    height: 0.9em;
+    border-radius: 4px;
+    background: var(--line);
+    opacity: 0.4;
+    vertical-align: middle;
   }
 
   .watch-links {
