@@ -26,11 +26,12 @@ type claimsKey struct{}
 type Handler struct {
 	svc       *Service
 	validator *token.Validator
-	oidc      *Federation // nil unless RegisterOIDC was called
-	email     *EmailLogin // nil unless RegisterEmailLogin was called
-	phone     *PhoneLogin // nil unless RegisterPhoneLogin was called
-	tos       ToSAcceptor // nil unless RegisterIdentity was called
-	ekyc      EKYCService // nil unless RegisterIdentity received one
+	oidc      *Federation   // nil unless RegisterOIDC was called
+	email     *EmailLogin   // nil unless RegisterEmailLogin was called
+	phone     *PhoneLogin   // nil unless RegisterPhoneLogin was called
+	tos       ToSAcceptor   // nil unless RegisterIdentity was called
+	ekyc      EKYCService   // nil unless RegisterIdentity received one
+	profile   ProfileReader // nil unless RegisterProfile was called
 	mux       *http.ServeMux
 }
 
@@ -47,6 +48,9 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h.mux.Handle("PATCH /v1/me", h.requireAuth(http.HandlerFunc(h.handleUpdateProfile)))
 	h.mux.Handle("DELETE /v1/me", h.requireAuth(http.HandlerFunc(h.handleCloseAccount)))
 	h.mux.Handle("POST /v1/instructor/apply", h.requireAuth(http.HandlerFunc(h.handleBecomeInstructor)))
+	h.mux.Handle("GET /v1/me/identities", h.requireAuth(http.HandlerFunc(h.handleMeIdentities)))
+	h.mux.Handle("GET /v1/me/sessions", h.requireAuth(http.HandlerFunc(h.handleMeSessions)))
+	h.mux.Handle("GET /v1/me/consents", h.requireAuth(http.HandlerFunc(h.handleMeConsents)))
 	return h
 }
 

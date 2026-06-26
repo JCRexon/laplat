@@ -60,6 +60,36 @@ export interface UserSummary {
   isPlatformModerator: boolean;
 }
 
+// GET /v1/me/identities — login methods linked to the account.
+export interface IdentityFactors {
+  email: string | null;
+  phone: string | null;
+  federated: string[];
+}
+
+// GET /v1/me/sessions — participation history entry.
+export interface SessionHistoryEntry {
+  sessionId: string;
+  kind: string;
+  status: string;
+  role: string;
+  joinedAt: string; // RFC3339
+  leftAt: string | null; // RFC3339
+  classId: string | null;
+  classTitle: string | null;
+  scheduledStart: string | null; // RFC3339
+  durationMinutes: number | null;
+}
+
+// GET /v1/me/consents — consent ledger entry.
+export interface ConsentHistoryEntry {
+  id: string;
+  sessionId: string;
+  purpose: string;
+  granted: boolean;
+  grantedAt: string; // RFC3339
+}
+
 // GET /v1/recordings/sessions/{id}/playback — completed recordings (free tier).
 export interface RecordingView {
   id: string;

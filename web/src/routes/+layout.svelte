@@ -17,6 +17,7 @@
           <a href="/classes">My classes</a>
         {/if}
         <a href="/onboarding">My identity</a>
+        <a href="/account">Account</a>
         {#if data.me.capabilities.includes("platform_moderator")}
           <a href="/admin">Moderation</a>
         {/if}
