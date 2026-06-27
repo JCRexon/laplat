@@ -1,7 +1,7 @@
 import { redirect } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 import { api, ApiError } from "$lib/server/authd";
-import type { ClassView, SessionSummary, RecordingView } from "$lib/types";
+import type { ClassView, SessionSummary, RecordingView, ClassProgress } from "$lib/types";
 
 export interface EnrolledClass extends ClassView {
   sessions: SessionSummary[];
@@ -48,10 +48,19 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
     })
   );
 
+  // Attendance per class — best-effort; absent map just hides the progress line.
+  const progressByClass: Record<string, ClassProgress> = {};
+  try {
+    const rows = (await api<{ progress: ClassProgress[] }>(cookies, "/v1/me/progress")).progress ?? [];
+    for (const p of rows) progressByClass[p.classId] = p;
+  } catch {
+    // Not available — not an error.
+  }
+
   const classes: EnrolledClass[] = enrolled.map((c, i) => ({
     ...c,
     sessions: sessionsPerClass[i],
   }));
 
-  return { classes, recordingsBySession };
+  return { classes, recordingsBySession, progressByClass };
 };

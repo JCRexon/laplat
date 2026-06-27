@@ -13,6 +13,19 @@ type ProfileReader interface {
 	GetIdentityFactors(ctx context.Context, userID string) (store.IdentityFactors, error)
 	ListSessionHistory(ctx context.Context, userID string) ([]store.SessionEntry, error)
 	ListConsentHistory(ctx context.Context, userID string) ([]store.ConsentEntry, error)
+	ListLoginEvents(ctx context.Context, userID string) ([]store.LoginEvent, error)
+	ListClassProgress(ctx context.Context, userID string) ([]store.ClassProgress, error)
+	RecordLoginEvent(ctx context.Context, id, userID, method string) error
+}
+
+// recordLogin appends an authentication-activity row, best-effort: a failure
+// here must never block the sign-in that triggered it. No-op when the profile
+// store is not wired.
+func (h *Handler) recordLogin(ctx context.Context, userID, method string) {
+	if h.profile == nil || userID == "" {
+		return
+	}
+	_ = h.profile.RecordLoginEvent(ctx, newOpaqueID(), userID, method)
 }
 
 // RegisterProfile wires the profile store so the /v1/me/identities,
@@ -122,4 +135,62 @@ func (h *Handler) handleMeConsents(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"consents": items})
+}
+
+type loginEventItem struct {
+	ID        string `json:"id"`
+	Method    string `json:"method"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (h *Handler) handleMeLoginEvents(w http.ResponseWriter, r *http.Request) {
+	if h.profile == nil {
+		writeError(w, http.StatusNotImplemented, "not configured")
+		return
+	}
+	claims, _ := ClaimsFrom(r.Context())
+	events, err := h.profile.ListLoginEvents(r.Context(), claims.Subject)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load login events")
+		return
+	}
+	items := make([]loginEventItem, 0, len(events))
+	for _, e := range events {
+		items = append(items, loginEventItem{
+			ID:        e.ID,
+			Method:    e.Method,
+			CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": items})
+}
+
+type progressItem struct {
+	ClassID       string `json:"classId"`
+	Title         string `json:"title"`
+	TotalSessions int    `json:"totalSessions"`
+	Attended      int    `json:"attended"`
+}
+
+func (h *Handler) handleMeProgress(w http.ResponseWriter, r *http.Request) {
+	if h.profile == nil {
+		writeError(w, http.StatusNotImplemented, "not configured")
+		return
+	}
+	claims, _ := ClaimsFrom(r.Context())
+	rows, err := h.profile.ListClassProgress(r.Context(), claims.Subject)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load progress")
+		return
+	}
+	items := make([]progressItem, 0, len(rows))
+	for _, p := range rows {
+		items = append(items, progressItem{
+			ClassID:       p.ClassID,
+			Title:         p.Title,
+			TotalSessions: p.TotalSessions,
+			Attended:      p.Attended,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"progress": items})
 }

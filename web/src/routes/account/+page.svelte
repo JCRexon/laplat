@@ -24,6 +24,15 @@
     if (r === "subscriber") return "Participant";
     return r;
   }
+
+  function methodLabel(m: string) {
+    if (m === "email") return "Email code";
+    if (m === "phone") return "Phone code";
+    if (m === "google") return "Google";
+    if (m === "apple") return "Apple";
+    if (m === "zalo") return "Zalo";
+    return m;
+  }
 </script>
 
 <div class="stack">
@@ -70,6 +79,31 @@
     <p class="muted small mt">
       To add or change a login method, use <a href="/onboarding">My identity</a>.
     </p>
+  </section>
+
+  <!-- ─── Login activity ──────────────────────────────────────────── -->
+  <section class="card">
+    <h2>Recent sign-ins</h2>
+    <p class="muted sub">Your most recent account access, newest first.</p>
+
+    {#if data.loginEvents.length === 0}
+      <p class="muted">No sign-in activity recorded yet.</p>
+    {:else}
+      <div class="login-list">
+        {#each data.loginEvents as e (e.id)}
+          <div class="login-row">
+            <span class="method-chip">{methodLabel(e.method)}</span>
+            <span class="login-time muted small mono">
+              {#if mounted}{fmt(e.createdAt)}{:else}<span class="time-skeleton"></span>{/if}
+            </span>
+          </div>
+        {/each}
+      </div>
+      <p class="muted small mt">
+        Don't recognise a sign-in? Change your login methods from
+        <a href="/onboarding">My identity</a>.
+      </p>
+    {/if}
   </section>
 
   <!-- ─── Session attendance history ──────────────────────────────── -->
@@ -151,6 +185,17 @@
         {/each}
       </div>
     {/if}
+  </section>
+
+  <!-- ─── Data export (right of access) ────────────────────────────── -->
+  <section class="card">
+    <h2>Download my data</h2>
+    <p class="muted sub">
+      See everything laplat holds about you — your profile, identity status,
+      enrolments, and activity — in one place. For your security this requires a
+      fresh identity check.
+    </p>
+    <a href="/account/my-data" class="cta-btn">View my data →</a>
   </section>
 </div>
 
@@ -397,6 +442,58 @@
 
   .small {
     font-size: 0.8rem;
+  }
+
+  /* Login activity */
+  .login-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .login-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 0.85rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .login-row:last-child {
+    border-bottom: none;
+  }
+
+  .method-chip {
+    display: inline-block;
+    padding: 0.1rem 0.55rem;
+    border-radius: 9999px;
+    background: rgba(218, 37, 29, 0.1);
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .login-time {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Data export CTA */
+  .cta-btn {
+    display: inline-block;
+    padding: 0.55rem 1.1rem;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .cta-btn:hover {
+    opacity: 0.85;
   }
 
   a {

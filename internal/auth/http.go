@@ -32,6 +32,7 @@ type Handler struct {
 	tos       ToSAcceptor   // nil unless RegisterIdentity was called
 	ekyc      EKYCService   // nil unless RegisterIdentity received one
 	profile   ProfileReader // nil unless RegisterProfile was called
+	stepup    *StepUp       // nil unless RegisterStepUp was called
 	mux       *http.ServeMux
 }
 
@@ -51,6 +52,8 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h.mux.Handle("GET /v1/me/identities", h.requireAuth(http.HandlerFunc(h.handleMeIdentities)))
 	h.mux.Handle("GET /v1/me/sessions", h.requireAuth(http.HandlerFunc(h.handleMeSessions)))
 	h.mux.Handle("GET /v1/me/consents", h.requireAuth(http.HandlerFunc(h.handleMeConsents)))
+	h.mux.Handle("GET /v1/me/login-events", h.requireAuth(http.HandlerFunc(h.handleMeLoginEvents)))
+	h.mux.Handle("GET /v1/me/progress", h.requireAuth(http.HandlerFunc(h.handleMeProgress)))
 	return h
 }
 

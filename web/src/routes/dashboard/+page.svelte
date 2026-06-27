@@ -41,6 +41,7 @@
         {@const liveSessions = c.sessions.filter(s => s.status === "live")}
         {@const upcomingSessions = c.sessions.filter(s => s.status === "scheduled")}
         {@const endedWithRecs = c.sessions.filter(s => s.status === "ended" && data.recordingsBySession[s.sessionId]?.length)}
+        {@const prog = data.progressByClass[c.id]}
 
         <div class="course-card {liveSessions.length ? 'has-live' : ''}">
           <div class="course-head">
@@ -52,6 +53,19 @@
             </div>
             {#if c.description}
               <p class="course-desc muted">{c.description}</p>
+            {/if}
+            {#if prog && prog.totalSessions > 0}
+              <div class="progress">
+                <div class="progress-track">
+                  <div
+                    class="progress-fill"
+                    style="width: {Math.round((prog.attended / prog.totalSessions) * 100)}%"
+                  ></div>
+                </div>
+                <span class="progress-label muted small">
+                  Attended {prog.attended} of {prog.totalSessions} session{prog.totalSessions > 1 ? "s" : ""}
+                </span>
+              </div>
             {/if}
           </div>
 
@@ -212,6 +226,32 @@
     margin: 0;
     font-size: 0.875rem;
     line-height: 1.5;
+  }
+
+  /* Attendance progress */
+  .progress {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .progress-track {
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--line);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 9999px;
+    background: var(--accent, #2563eb);
+    transition: width 0.3s ease;
+  }
+
+  .progress-label {
+    font-size: 0.78rem;
   }
 
   /* Sessions */
