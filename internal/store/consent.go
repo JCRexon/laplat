@@ -57,7 +57,9 @@ func (s *Store) AppendConsent(ctx context.Context, in ConsentInput) error {
 		GrantedAt:     s.auditClock().Unix(),
 		SigningKeyID:  s.auditSigner.KeyID(),
 	}
-	r.Signature = s.auditSigner.Sign(r.SignedPayload())
+	if r.Signature, err = s.auditSigner.Sign(r.SignedPayload()); err != nil {
+		return err
+	}
 	recordHash := r.Hash()
 
 	_, err = tx.Exec(ctx, `

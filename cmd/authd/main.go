@@ -34,7 +34,9 @@ import (
 	"github.com/jcrexon/laplat/internal/recording"
 	"github.com/jcrexon/laplat/internal/session"
 	"github.com/jcrexon/laplat/internal/store"
+	"github.com/jcrexon/laplat/internal/vaultsign"
 	"github.com/jcrexon/laplat/pkg/contracts"
+	"github.com/jcrexon/laplat/pkg/signing"
 	"github.com/jcrexon/laplat/pkg/token"
 )
 
@@ -67,12 +69,22 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	auditSigner, err := audit.NewSigner(cfg.Kid, cfg.SigningKey)
+	// Select the signing backend once: Vault Transit (key never enters this
+	// process) when configured, otherwise the in-process env-var key. Both token
+	// and audit signing share it, exactly as they shared the raw key before.
+	keySigner, err := buildKeySigner(cfg)
+	if err != nil {
+		return err
+	}
+	if cfg.Vault != nil {
+		log.Info("token + audit signing via Vault Transit", "addr", cfg.Vault.Address, "key", cfg.Vault.KeyName)
+	}
+	auditSigner, err := audit.NewSignerFromKeySigner(keySigner)
 	if err != nil {
 		return err
 	}
 	st := store.New(pool, store.WithAuditSigner(auditSigner))
-	signer, err := token.NewSigner(cfg.Kid, cfg.SigningKey)
+	signer, err := token.NewSignerFromKeySigner(keySigner)
 	if err != nil {
 		return err
 	}
@@ -291,6 +303,22 @@ func run(log *slog.Logger) error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// buildKeySigner selects the Ed25519 signing backend. With Vault configured the
+// private key stays in Vault and signing is a Transit call; otherwise the
+// in-process env-var key is used (the MVP default).
+func buildKeySigner(cfg config.Config) (signing.KeySigner, error) {
+	if cfg.Vault != nil {
+		return vaultsign.New(vaultsign.Config{
+			Address: cfg.Vault.Address,
+			Token:   cfg.Vault.Token,
+			Mount:   cfg.Vault.Mount,
+			KeyName: cfg.Vault.KeyName,
+			KeyID:   cfg.Kid,
+		}, nil)
+	}
+	return signing.NewLocalKeySigner(cfg.Kid, cfg.SigningKey)
 }
 
 // waitForDB pings the pool until it succeeds or a bounded deadline passes. A

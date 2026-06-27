@@ -13,6 +13,7 @@ import (
 	"fmt"
 
 	"github.com/jcrexon/laplat/pkg/contracts"
+	"github.com/jcrexon/laplat/pkg/signing"
 )
 
 // GenesisHash is the prev_hash of the first entry: AuditHashLen zero bytes.
@@ -25,30 +26,41 @@ func Hash(e contracts.AuditEntry) []byte {
 	return sum[:]
 }
 
-// Signer produces the server signature over an entry hash.
+// Signer produces the server signature over an entry hash. It delegates the raw
+// Ed25519 signature to a signing.KeySigner, so the same key material that backs
+// token signing can live in-process or behind a remote signer (Vault/HSM).
 type Signer struct {
-	kid string
-	key ed25519.PrivateKey
+	ks signing.KeySigner
 }
 
-// NewSigner wraps an ed25519 key with the key id stamped into each entry (so
-// verification survives key rotation). The same key material backs token
-// signing; auditing reuses it rather than introducing separate config.
+// NewSigner wraps an in-process ed25519 key with the key id stamped into each
+// entry (so verification survives key rotation). Retained as the convenience
+// constructor for the env-var key path and tests; for a remote backend use
+// NewSignerFromKeySigner.
 func NewSigner(kid string, key ed25519.PrivateKey) (*Signer, error) {
-	if kid == "" {
+	ks, err := signing.NewLocalKeySigner(kid, key)
+	if err != nil {
+		return nil, err
+	}
+	return &Signer{ks: ks}, nil
+}
+
+// NewSignerFromKeySigner builds a Signer over any KeySigner (e.g. Vault Transit).
+func NewSignerFromKeySigner(ks signing.KeySigner) (*Signer, error) {
+	if ks == nil {
+		return nil, errors.New("audit: key signer required")
+	}
+	if ks.KeyID() == "" {
 		return nil, errors.New("audit: signing key id required")
 	}
-	if len(key) != ed25519.PrivateKeySize {
-		return nil, errors.New("audit: invalid ed25519 private key")
-	}
-	return &Signer{kid: kid, key: key}, nil
+	return &Signer{ks: ks}, nil
 }
 
 // KeyID returns the signer's key id.
-func (s *Signer) KeyID() string { return s.kid }
+func (s *Signer) KeyID() string { return s.ks.KeyID() }
 
-// Sign signs an entry hash.
-func (s *Signer) Sign(hash []byte) []byte { return ed25519.Sign(s.key, hash) }
+// Sign signs an entry hash. It can fail when backed by a remote signer.
+func (s *Signer) Sign(hash []byte) ([]byte, error) { return s.ks.SignRaw(hash) }
 
 // Verifier checks an entry chain against a set of public keys, keyed by id so
 // rotated-out keys still verify their historical entries.

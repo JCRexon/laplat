@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/jcrexon/laplat/pkg/contracts"
+	"github.com/jcrexon/laplat/pkg/signing"
 )
 
 // Sentinel errors. Callers may compare with errors.Is.
@@ -44,32 +45,44 @@ func b64(p []byte) string { return base64.RawURLEncoding.EncodeToString(p) }
 
 func unb64(s string) ([]byte, error) { return base64.RawURLEncoding.DecodeString(s) }
 
-// Signer mints access tokens with a single Ed25519 private key. Only the auth
-// service holds a Signer; the private key never leaves it (keep it in KMS/HSM
-// in production — A-1).
+// Signer mints access tokens. It delegates the raw Ed25519 signature to a
+// signing.KeySigner, so the private key can live in-process (the default) or
+// behind a remote signer (Vault/HSM) and never enter this process — A-1. Only
+// the auth service holds a Signer.
 type Signer struct {
-	kid string
-	key ed25519.PrivateKey
+	ks signing.KeySigner
 }
 
-// NewSigner validates the key and key id.
+// NewSigner builds a Signer over an in-process Ed25519 key. Retained as the
+// convenience constructor for the env-var key path and tests; for a remote
+// backend use NewSignerFromKeySigner.
 func NewSigner(kid string, key ed25519.PrivateKey) (*Signer, error) {
-	if kid == "" {
+	ks, err := signing.NewLocalKeySigner(kid, key)
+	if err != nil {
+		return nil, err
+	}
+	return &Signer{ks: ks}, nil
+}
+
+// NewSignerFromKeySigner builds a Signer over any KeySigner (e.g. Vault Transit),
+// so the signing key need not exist in this process.
+func NewSignerFromKeySigner(ks signing.KeySigner) (*Signer, error) {
+	if ks == nil {
+		return nil, errors.New("token: key signer required")
+	}
+	if ks.KeyID() == "" {
 		return nil, errors.New("token: kid required")
 	}
-	if len(key) != ed25519.PrivateKeySize {
-		return nil, errors.New("token: invalid ed25519 private key")
-	}
-	return &Signer{kid: kid, key: key}, nil
+	return &Signer{ks: ks}, nil
 }
 
 // KeyID returns the signer's key id (stamped into the token header so the
 // verifier can select the matching public key — rotation-safe).
-func (s *Signer) KeyID() string { return s.kid }
+func (s *Signer) KeyID() string { return s.ks.KeyID() }
 
 // Sign serialises and signs the claims, returning a compact JWS string.
 func (s *Signer) Sign(claims contracts.AccessTokenClaims) (string, error) {
-	hb, err := json.Marshal(jwtHeader{Alg: contracts.TokenAlg, Typ: contracts.TokenTyp, Kid: s.kid})
+	hb, err := json.Marshal(jwtHeader{Alg: contracts.TokenAlg, Typ: contracts.TokenTyp, Kid: s.ks.KeyID()})
 	if err != nil {
 		return "", err
 	}
@@ -78,7 +91,10 @@ func (s *Signer) Sign(claims contracts.AccessTokenClaims) (string, error) {
 		return "", err
 	}
 	signingInput := b64(hb) + "." + b64(pb)
-	sig := ed25519.Sign(s.key, []byte(signingInput))
+	sig, err := s.ks.SignRaw([]byte(signingInput))
+	if err != nil {
+		return "", err
+	}
 	return signingInput + "." + b64(sig), nil
 }
 
