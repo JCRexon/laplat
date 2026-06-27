@@ -268,3 +268,69 @@ to a stable, unforgeable identity (the session); the audit log *records* the
 access. Value rises once recordings are entitlement-gated, so this pairs with the
 payments/entitlements work; the expiry shortening + playback-audit entry are worth
 doing independently.
+
+---
+
+## ADR-012 — Storage tiers: S3-compatible object store on a separate host; DB for text; no block; file deferred
+**Date:** 2026-06-27 · **Status:** Accepted (direction) / Pending (build) · **Links:** issue #45 item 1 context, ADR-005, ADR-011
+
+**Context.** Production storage for recordings (and other binary content). The dev
+stack writes recordings to a shared local volume served by nginx — which couples
+the storage to the app/serving host and bounds capacity by that host's disk. How
+should prod store content, and do we need object / file / block tiers?
+
+**Decision.**
+- **Object storage (S3-compatible / S3 API)** is the content tier for **all
+  binary blobs** — recordings, images, post attachments, avatars. It lives on a
+  **separate physical/virtual host** from the app tier.
+- **Physically decoupled, runtime-coupled.** App and storage run on separate
+  infrastructure, but the app depends on storage at runtime and reaches it
+  synchronously over a **private IP network**. This is deployment/blast-radius
+  separation, not eventual-consistency decoupling — so storage-tier HA/DR matters
+  to app availability (see DR below).
+- **Block storage — not adopted.** No workload here needs a raw block device
+  shared across serving hosts.
+- **File / POSIX (NFS) — not adopted now.** Forum **post bodies are structured
+  data → Postgres** (TEXT + full-text search), not files; what is blob-shaped in a
+  forum is **attachments**, which are objects. A file/POSIX tier is justified only
+  by a concrete need for shared-mutable-filesystem or partial-in-place-write
+  semantics, which nothing currently has. Deferred, not foreclosed: the chosen
+  object backends (MinIO / Ceph / SeaweedFS) can expose a file gateway later.
+
+**So the tiering is:** Postgres (structured data, incl. forum text) · Object
+storage (all binary blobs) · *(File — only if a real POSIX need appears)*.
+
+**Reasoning.**
+- Recordings/images/attachments are immutable media blobs served over HTTP to many
+  readers — object storage's exact sweet spot, and it provides replication,
+  versioning, Object Lock (WORM), erasure coding, and presigned URLs as built-in
+  primitives. NFS-over-IP instead brings distributed-lock/latency pain, weak
+  host-based auth, and a SPOF unless clustered (i.e. a worse object store).
+- Forum text in the DB keeps it queryable/editable/searchable; treating posts as
+  files would discard that for no benefit.
+- Decoupling the storage host removes the app-disk-exhaustion failure mode (the
+  original concern) and lets the media tier scale independently of app instances.
+
+**Consequences / how it lands.**
+- **Write path:** LiveKit egress uploads **directly** to the bucket (it has a
+  native S3 sink); the egress request is already a `map[string]any` and
+  `EgressInfo.Output()` already carries a remote location, so this is a small,
+  localized change. Introduce a `BlobStore` interface in the content/recording
+  domain (mirroring the existing `Egress` interface) — a clean seam in the modular
+  monolith.
+- **Serve path:** a dedicated content origin/vhost in front of the bucket, with
+  the app kept out of the byte path; access **identity-gated per ADR-011** (the
+  object choice does not by itself solve the leak/authz problem — presigned URLs
+  are still bearer tokens).
+- **DR:** async bucket/site **replication to a second in-country site**
+  (active-passive) + intra-site erasure coding.
+- **Retention:** lifecycle rules to expire after the Decree-147 window, with
+  **Object Lock** for immutability of the retained legal record.
+- **Don't-forget pairings:** recording **start quotas / rate limits** (decoupling
+  changes the blast radius from full disk to unbounded cost, not the need to bound
+  it); private subnet, TLS, **scoped per-purpose credentials** (egress write-only;
+  serving read-only), **encryption at rest** (recordings are PII).
+
+**Open sub-decision.** Self-hosted (MinIO / Ceph) vs cloud S3 — a trade between
+**data residency + control** (Decree 147/PDPL favours in-country self-host, per
+ADR-005's reasoning) and **operational burden**. Not settled here.
