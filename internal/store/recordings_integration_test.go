@@ -71,6 +71,44 @@ func TestRecording_Lifecycle(t *testing.T) {
 	}
 }
 
+// A terminal recording is sticky: a later (replayed or out-of-order) update to a
+// non-terminal status must not reopen it. This is the race-safe guard against
+// webhook replay regressing recording state.
+func TestRecording_TerminalIsSticky(t *testing.T) {
+	st, ctx := newRecordingStore(t)
+
+	if err := st.CreateRecording(ctx, "rec-1", "S1", "active"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRecordingEgress(ctx, "rec-1", "EG_1", "active"); err != nil {
+		t.Fatal(err)
+	}
+	uri := "s3://bucket/room-1.mp4"
+	if err := st.UpdateRecordingStatus(ctx, "rec-1", "completed", true, &uri, nil); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	// Replay an earlier "active" update. It must be a no-op (no error), leaving the
+	// recording terminal with its output intact.
+	if err := st.UpdateRecordingStatus(ctx, "rec-1", "active", false, nil, nil); err != nil {
+		t.Fatalf("replay update should be a no-op, not an error: %v", err)
+	}
+
+	recs, err := st.RecordingsBySession(ctx, "S1")
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("RecordingsBySession: %d recs, err=%v", len(recs), err)
+	}
+	if recs[0].Status != "completed" {
+		t.Fatalf("status = %q, want completed (terminal must be sticky)", recs[0].Status)
+	}
+	if recs[0].OutputURI != uri || recs[0].EndedAt == nil {
+		t.Fatalf("terminal fields lost after replay: %+v", recs[0])
+	}
+	if _, ok, _ := st.ActiveRecording(ctx, "S1"); ok {
+		t.Fatal("replay must not put the recording back in flight")
+	}
+}
+
 // The partial unique index allows only one in-flight recording per session, but
 // a fresh one once the prior reaches a terminal status.
 func TestRecording_OneInFlightPerSession(t *testing.T) {

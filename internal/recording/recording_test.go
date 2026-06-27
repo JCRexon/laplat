@@ -324,6 +324,57 @@ func TestHandleWebhookEvent_CompletesRecording(t *testing.T) {
 	}
 }
 
+// A replayed/out-of-order egress event must not reopen a finished recording.
+func TestHandleWebhookEvent_TerminalIsSticky(t *testing.T) {
+	repo := newFakeRepo()
+	repo.allowed = true
+	eg := &fakeEgress{startStatus: livekit.EgressActive}
+	svc := newSvc(t, repo, eg)
+
+	if _, err := svc.Start(context.Background(), hostClaims(), "S1"); err != nil {
+		t.Fatal(err)
+	}
+
+	uri := "/out/ses-42-1234.mp4"
+	end := &livekit.WebhookEvent{
+		Event: livekit.WebhookEgressEnded,
+		EgressInfo: &livekit.EgressInfo{
+			EgressID: "EG_1",
+			Status:   livekit.EgressComplete,
+			File:     &livekit.EgressFile{Location: uri},
+		},
+	}
+	if err := svc.HandleWebhookEvent(context.Background(), end); err != nil {
+		t.Fatalf("HandleWebhookEvent(end): %v", err)
+	}
+
+	// Replay an earlier "active" update after completion. It must be ignored.
+	replay := &livekit.WebhookEvent{
+		Event: livekit.WebhookEgressUpdated,
+		EgressInfo: &livekit.EgressInfo{
+			EgressID: "EG_1",
+			Status:   livekit.EgressActive,
+		},
+	}
+	if err := svc.HandleWebhookEvent(context.Background(), replay); err != nil {
+		t.Fatalf("HandleWebhookEvent(replay): %v", err)
+	}
+
+	recs, err := svc.ListCompleted(context.Background(), "S1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("completed recordings = %d, want 1 (replay must not reopen it)", len(recs))
+	}
+	if recs[0].Status != StatusCompleted {
+		t.Fatalf("status = %q, want %q (terminal must be sticky)", recs[0].Status, StatusCompleted)
+	}
+	if recs[0].OutputURI != uri {
+		t.Errorf("OutputURI = %q, want %q (must be preserved)", recs[0].OutputURI, uri)
+	}
+}
+
 // HandleWebhookEvent silently ignores unknown egress IDs.
 func TestHandleWebhookEvent_UnknownEgressIgnored(t *testing.T) {
 	repo := newFakeRepo()
