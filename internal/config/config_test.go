@@ -42,6 +42,59 @@ func TestLoad_MinimalAppliesDefaultsAndSelfVerify(t *testing.T) {
 	}
 }
 
+func TestLoad_VaultSigningMakesEnvKeyOptional(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubB64 := base64.StdEncoding.EncodeToString(pub)
+
+	// With Vault configured and no env signing key, Load succeeds as long as the
+	// public key for the kid is published in the verify set.
+	cfg, err := Load(env(map[string]string{
+		EnvDBDSN:           "x",
+		EnvKid:             "kid-1",
+		EnvVaultAddr:       "https://127.0.0.1:8200",
+		EnvVaultToken:      "tok",
+		EnvVaultTransitKey: "laplat-signing",
+		EnvVerifyKeys:      "kid-1:" + pubB64,
+	}))
+	if err != nil {
+		t.Fatalf("load with vault: %v", err)
+	}
+	if cfg.Vault == nil || cfg.Vault.KeyName != "laplat-signing" || cfg.Vault.Mount != "transit" {
+		t.Fatalf("vault config not parsed: %+v", cfg.Vault)
+	}
+	if cfg.SigningKey != nil {
+		t.Fatalf("expected no in-process signing key under Vault")
+	}
+
+	// Without a published pubkey, Load still succeeds: the wiring layer fetches
+	// the public key from Vault at startup, so config need not require it.
+	cfg2, err := Load(env(map[string]string{
+		EnvDBDSN:           "x",
+		EnvKid:             "kid-1",
+		EnvVaultAddr:       "https://127.0.0.1:8200",
+		EnvVaultToken:      "tok",
+		EnvVaultTransitKey: "laplat-signing",
+	}))
+	if err != nil {
+		t.Fatalf("vault without published pubkey should load: %v", err)
+	}
+	if _, ok := cfg2.VerifyKeys["kid-1"]; ok {
+		t.Fatal("did not expect a verify key for kid before runtime fetch")
+	}
+
+	// Partial Vault config (address without token/key) is an error.
+	if _, err := Load(env(map[string]string{
+		EnvDBDSN:     "x",
+		EnvKid:       "kid-1",
+		EnvVaultAddr: "https://127.0.0.1:8200",
+	})); err == nil {
+		t.Fatal("expected error for incomplete vault config")
+	}
+}
+
 func TestLoad_MissingRequired(t *testing.T) {
 	signing, _ := seedB64(t)
 	full := map[string]string{EnvDBDSN: "x", EnvKid: "kid-1", EnvSigningKey: signing}

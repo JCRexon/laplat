@@ -38,7 +38,8 @@ func mkEntry(s *audit.Signer, seq int64, prev []byte, action contracts.AuditActi
 		SigningKeyID:  s.KeyID(),
 	}
 	e.EntryHash = audit.Hash(e)
-	e.Signature = s.Sign(e.EntryHash)
+	// The local signer is infallible; discard the error in this test helper.
+	e.Signature, _ = s.Sign(e.EntryHash)
 	return e
 }
 

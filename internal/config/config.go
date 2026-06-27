@@ -24,6 +24,15 @@ const (
 	EnvAccessTTL  = "LAPLAT_ACCESS_TTL"
 	EnvRefreshTTL = "LAPLAT_REFRESH_TTL"
 
+	// Vault Transit signing (optional). When configured, token + audit signing is
+	// delegated to Vault and the private key never enters this process; the env
+	// signing key becomes optional and the public key for EnvKid must instead be
+	// supplied via EnvVerifyKeys. Enabled when address or key name is set.
+	EnvVaultAddr         = "LAPLAT_VAULT_ADDR"          // e.g. https://127.0.0.1:8200
+	EnvVaultToken        = "LAPLAT_VAULT_TOKEN"         // Vault token with sign access
+	EnvVaultTransitMount = "LAPLAT_VAULT_TRANSIT_MOUNT" // transit mount path (default "transit")
+	EnvVaultTransitKey   = "LAPLAT_VAULT_TRANSIT_KEY"   // ed25519 transit key name
+
 	// Per-client rate limiting (requests/sec and burst). Defaults apply when unset.
 	EnvRateLimitRPS   = "LAPLAT_RATE_LIMIT_RPS"
 	EnvRateLimitBurst = "LAPLAT_RATE_LIMIT_BURST"
@@ -106,8 +115,9 @@ type Config struct {
 	HTTPAddr       string
 	DBDSN          string
 	Kid            string
-	SigningKey     ed25519.PrivateKey
+	SigningKey     ed25519.PrivateKey // nil when Vault signing is configured
 	VerifyKeys     map[string]ed25519.PublicKey
+	Vault          *VaultConfig // nil unless Vault Transit signing is configured
 	AccessTTL      time.Duration
 	RefreshTTL     time.Duration
 	RateLimitRPS   float64
@@ -118,6 +128,15 @@ type Config struct {
 	LiveKit        *LiveKitConfig // nil unless live sessions are configured
 	EKYC           *EKYCConfig    // nil unless the VN eKYC vendor is configured
 	DevOTPConsole  bool           // DEV ONLY: log OTP codes when no vendor is set
+}
+
+// VaultConfig is the (optional) Vault Transit signing backend. When set, the
+// Ed25519 signing key lives in Vault and the process signs via the Transit API.
+type VaultConfig struct {
+	Address string // VAULT_ADDR
+	Token   string // VAULT_TOKEN
+	Mount   string // transit mount path (default "transit")
+	KeyName string // transit key name
 }
 
 // EKYCConfig is the (optional) VN adult-verification vendor configuration.
@@ -226,19 +245,35 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, missing(EnvKid)
 	}
 
-	signing, err := parseSigningKey(getenv(EnvSigningKey))
+	vault, err := parseVault(getenv)
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.SigningKey = signing
+	cfg.Vault = vault
+
+	// With Vault signing the private key lives in Vault, so the env key is
+	// optional (and normally absent). Without Vault it is required, as before.
+	rawKey := getenv(EnvSigningKey)
+	if vault == nil || rawKey != "" {
+		signing, err := parseSigningKey(rawKey)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.SigningKey = signing
+	}
 
 	verify, err := parseVerifyKeys(getenv(EnvVerifyKeys))
 	if err != nil {
 		return Config{}, err
 	}
-	// Ensure the signer can verify its own tokens.
-	if _, ok := verify[cfg.Kid]; !ok {
-		verify[cfg.Kid] = signing.Public().(ed25519.PublicKey)
+	// With a local key, register the signer's own public key so it can verify its
+	// own tokens. With Vault, the key isn't in this process — the wiring layer
+	// fetches the public key from Vault at startup (or the operator may still
+	// publish it via EnvVerifyKeys), so no derivation happens here.
+	if cfg.SigningKey != nil {
+		if _, ok := verify[cfg.Kid]; !ok {
+			verify[cfg.Kid] = cfg.SigningKey.Public().(ed25519.PublicKey)
+		}
 	}
 	cfg.VerifyKeys = verify
 
@@ -283,6 +318,27 @@ func truthy(s string) bool {
 	default:
 		return false
 	}
+}
+
+// parseVault reads the optional Vault Transit signing config. Enabled when the
+// address or key name is set; address, token, and key are then all required.
+// The transit mount defaults to "transit".
+func parseVault(getenv func(string) string) (*VaultConfig, error) {
+	addr := strings.TrimSpace(getenv(EnvVaultAddr))
+	key := strings.TrimSpace(getenv(EnvVaultTransitKey))
+	if addr == "" && key == "" {
+		return nil, nil // Vault signing disabled
+	}
+	token := strings.TrimSpace(getenv(EnvVaultToken))
+	if addr == "" || key == "" || token == "" {
+		return nil, fmt.Errorf("config: Vault signing needs %s, %s and %s",
+			EnvVaultAddr, EnvVaultToken, EnvVaultTransitKey)
+	}
+	mount := strings.TrimSpace(getenv(EnvVaultTransitMount))
+	if mount == "" {
+		mount = "transit"
+	}
+	return &VaultConfig{Address: addr, Token: token, Mount: mount, KeyName: key}, nil
 }
 
 // parseEKYC reads the optional VN eKYC vendor config. Enabled when the vendor

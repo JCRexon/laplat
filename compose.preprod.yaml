@@ -1,0 +1,107 @@
+# Pre-prod overlay: run the stack with token + audit signing delegated to a
+# persistent, self-hosted HashiCorp Vault (Transit engine) instead of the
+# checked-in env key. Layer it on the base stack:
+#
+#   docker compose -f compose.yaml -f compose.preprod.yaml up --build
+#
+# What this overlay changes vs the dev stack:
+#   - adds a Vault server with FILE storage on a volume (survives restarts, so
+#     the signing key — and therefore the verifiable audit/consent chain —
+#     persists across restarts),
+#   - a one-shot vault-init that initialises + unseals Vault, enables Transit,
+#     and creates the ed25519 signing key (all idempotent),
+#   - points authd at Vault; the signing key never enters the authd process and
+#     authd fetches its own public key from Vault at startup.
+#
+# SCOPE: this overlay only hardens the SIGNING path. It still inherits the dev
+# OTP console sender and dev LiveKit keys from compose.yaml — a true pre-prod
+# would also wire real SMS/SMTP, real LiveKit keys, COOKIE_SECURE=true, etc.
+#
+# NOT FOR PRODUCTION: the unseal key + root token are written to a volume so the
+# stack can auto-unseal unattended. Production must use real auto-unseal (a cloud
+# KMS / HSM transit seal) and scoped policy tokens, never stored root creds.
+services:
+  vault:
+    image: hashicorp/vault:1.17
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_LOCAL_CONFIG: >-
+        {"storage":{"file":{"path":"/vault/file"}},
+         "listener":[{"tcp":{"address":"0.0.0.0:8200","tls_disable":true}}],
+         "ui":true,"disable_mlock":true}
+    command: server
+    volumes:
+      - vault-data:/vault/file
+    ports:
+      - "8200:8200" # UI/API exposed for debugging
+    healthcheck:
+      # Healthy once the API answers, whether unsealed (0) or sealed (2).
+      test: ["CMD-SHELL", "vault status >/dev/null 2>&1 || [ $$? -eq 2 ]"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # One-shot: initialise + unseal Vault, enable Transit, create the ed25519
+  # signing key, and publish a token for authd. Idempotent across restarts.
+  vault-init:
+    image: hashicorp/vault:1.17
+    user: root # needs apk to add jq for robust JSON parsing
+    environment:
+      VAULT_ADDR: http://vault:8200
+    volumes:
+      - vault-init:/vault-init
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache jq >/dev/null 2>&1 || true
+
+        if [ ! -f /vault-init/init.json ]; then
+          echo "initialising vault"
+          vault operator init -key-shares=1 -key-threshold=1 -format=json > /vault-init/init.json
+        fi
+        UNSEAL=$$(jq -r '.unseal_keys_b64[0]' /vault-init/init.json)
+        ROOT=$$(jq -r '.root_token' /vault-init/init.json)
+
+        # Unseal (no-op if already unsealed).
+        vault operator unseal "$$UNSEAL" >/dev/null 2>&1 || true
+
+        export VAULT_TOKEN="$$ROOT"
+        vault secrets enable transit 2>/dev/null || true
+        vault write -f transit/keys/laplat-signing type=ed25519 2>/dev/null || true
+
+        # Publish the token authd uses to sign. Pre-prod reuses root; production
+        # would mint a token bound to a least-privilege policy (sign on this key).
+        printf '%s' "$$ROOT" > /vault-init/token
+        echo "vault transit ready (key: laplat-signing)"
+    depends_on:
+      vault:
+        condition: service_healthy
+
+  authd:
+    environment:
+      # Delegate signing to Vault. The signing key stays in Vault; authd fetches
+      # its own public key from Vault at startup (no manual pubkey publishing).
+      LAPLAT_VAULT_ADDR: http://vault:8200
+      LAPLAT_VAULT_TRANSIT_KEY: laplat-signing
+      # Unset the dev env signing key so the Vault path is taken.
+      LAPLAT_TOKEN_SIGNING_KEY: ""
+    volumes:
+      - vault-init:/vault-init:ro
+    # Read the Vault token published by vault-init, then exec authd.
+    entrypoint:
+      - sh
+      - -c
+      - |
+        export LAPLAT_VAULT_TOKEN="$$(cat /vault-init/token)"
+        exec authd
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+
+volumes:
+  vault-data:
+  vault-init:

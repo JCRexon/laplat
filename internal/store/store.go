@@ -37,10 +37,11 @@ type Store struct {
 }
 
 // AuditSigner signs an audit entry hash; the store stamps the key id into each
-// row for rotation-safe verification. *audit.Signer satisfies it.
+// row for rotation-safe verification. *audit.Signer satisfies it. Sign can fail
+// when backed by a remote signer (Vault/HSM), aborting the enclosing transaction.
 type AuditSigner interface {
 	KeyID() string
-	Sign(hash []byte) []byte
+	Sign(hash []byte) ([]byte, error)
 }
 
 // Option configures a Store at construction.

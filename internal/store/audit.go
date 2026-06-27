@@ -67,7 +67,9 @@ func (s *Store) appendAuditTx(ctx context.Context, tx pgx.Tx, in AuditInput) err
 		SigningKeyID:  s.auditSigner.KeyID(),
 	}
 	e.EntryHash = audit.Hash(e)
-	e.Signature = s.auditSigner.Sign(e.EntryHash)
+	if e.Signature, err = s.auditSigner.Sign(e.EntryHash); err != nil {
+		return err
+	}
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO audit_log
