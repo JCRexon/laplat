@@ -23,7 +23,7 @@
 
 <div class="stack">
   <div class="head-row">
-    <h1>My data</h1>
+    <h1 class="section-title">My data</h1>
     {#if data.export}
       <form method="POST" action="?/lock" use:enhance>
         <button type="submit" class="lock-btn">Lock again</button>

@@ -80,12 +80,12 @@
   .mod-table td {
     padding: 0.5rem 0.75rem;
     text-align: left;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--line);
   }
 
   .mod-table th {
     font-weight: 600;
-    color: #6b7280;
+    color: var(--muted);
     font-size: 0.8rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -104,18 +104,18 @@
   }
 
   .s-active {
-    background: #d1fae5;
-    color: #065f46;
+    background: var(--success-soft);
+    color: var(--success);
   }
 
   .s-suspended {
-    background: #fee2e2;
-    color: #991b1b;
+    background: var(--live-soft);
+    color: var(--error);
   }
 
   .s-pending {
-    background: #fef3c7;
-    color: #92400e;
+    background: var(--gold-soft);
+    color: var(--gold-ink);
   }
 
   .actions {
@@ -128,28 +128,30 @@
     padding: 0.25rem 0.6rem;
     font-size: 0.8rem;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     white-space: nowrap;
+    box-shadow: none;
+    font-weight: 600;
+  }
+  .btn-sm:active {
+    transform: none;
+    box-shadow: none;
   }
 
   .btn-warn {
-    background: #fee2e2;
-    color: #991b1b;
-    border-color: #fca5a5;
+    background: var(--live-soft);
+    color: var(--error);
   }
-
   .btn-warn:hover {
-    background: #fca5a5;
+    filter: brightness(0.97);
   }
 
   .btn-ok {
-    background: #d1fae5;
-    color: #065f46;
-    border-color: #6ee7b7;
+    background: var(--success-soft);
+    color: var(--success);
   }
-
   .btn-ok:hover {
-    background: #6ee7b7;
+    filter: brightness(0.97);
   }
 </style>

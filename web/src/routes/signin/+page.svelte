@@ -63,7 +63,7 @@
   }
 
   .btn-social:hover {
-    background: #f5f5f5;
+    background: var(--input-bg);
   }
 
   .divider {
