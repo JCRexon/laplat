@@ -15,6 +15,8 @@ type ProfileReader interface {
 	ListConsentHistory(ctx context.Context, userID string) ([]store.ConsentEntry, error)
 	ListLoginEvents(ctx context.Context, userID string) ([]store.LoginEvent, error)
 	ListClassProgress(ctx context.Context, userID string) ([]store.ClassProgress, error)
+	ListClassCompletions(ctx context.Context, userID string) ([]store.ClassCompletion, error)
+	GetUser(ctx context.Context, id string) (store.User, error)
 	RecordLoginEvent(ctx context.Context, id, userID, method string) error
 }
 
@@ -193,4 +195,57 @@ func (h *Handler) handleMeProgress(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"progress": items})
+}
+
+type completionItem struct {
+	ClassID        string  `json:"classId"`
+	Title          string  `json:"title"`
+	InstructorName string  `json:"instructorName"`
+	TotalSessions  int     `json:"totalSessions"`
+	EndedSessions  int     `json:"endedSessions"`
+	AttendedEnded  int     `json:"attendedEnded"`
+	Complete       bool    `json:"complete"`
+	CompletedAt    *string `json:"completedAt"`
+}
+
+func (h *Handler) handleMeCompletions(w http.ResponseWriter, r *http.Request) {
+	if h.profile == nil {
+		writeError(w, http.StatusNotImplemented, "not configured")
+		return
+	}
+	claims, _ := ClaimsFrom(r.Context())
+
+	// The learner's display name backs any certificate rendered from this data.
+	user, err := h.profile.GetUser(r.Context(), claims.Subject)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load profile")
+		return
+	}
+	rows, err := h.profile.ListClassCompletions(r.Context(), claims.Subject)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load completions")
+		return
+	}
+	items := make([]completionItem, 0, len(rows))
+	for _, c := range rows {
+		var completedAt *string
+		if c.CompletedAt != nil {
+			s := c.CompletedAt.UTC().Format(time.RFC3339)
+			completedAt = &s
+		}
+		items = append(items, completionItem{
+			ClassID:        c.ClassID,
+			Title:          c.Title,
+			InstructorName: c.InstructorName,
+			TotalSessions:  c.TotalSessions,
+			EndedSessions:  c.EndedSessions,
+			AttendedEnded:  c.AttendedEnded,
+			Complete:       c.Complete,
+			CompletedAt:    completedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"learnerName": user.DisplayName,
+		"completions": items,
+	})
 }
