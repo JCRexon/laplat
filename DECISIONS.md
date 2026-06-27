@@ -219,33 +219,86 @@ and more complete than a `jti` cache (which stops only replay and adds state);
 
 ---
 
-## ADR-010 — Presence auditing: decouple ingest from anchoring (Merkle checkpoints)
-**Date:** 2026-06-27 · **Status:** Proposed · **Links:** issue #45 (item 2)
+## ADR-010 — Presence auditing: Merkle-checkpointed, Vault-signed, hot-path events in the DB
+**Date:** 2026-06-27 · **Status:** Accepted · **Links:** issue #45 (item 2), ADR-005, ADR-006, ADR-011
 
-**Context.** Session join/leave (the Decree-147 "presence" signal) isn't in the
-tamper-evident log. How to add it: a single chain, or sharded chains? The
-existing chains use a global advisory lock and sign per append — and signing is
-now a **Vault network call** (ADR-005), held across the lock.
+**Context.** Session join/leave — the Decree-147 "presence" signal (proof of who
+was in a room and when) — is recorded only operationally in `session_participants`,
+not in the tamper-evident log. Adding it raises a design question: a single chain,
+sharded chains, or something else? Two forces shape the answer: presence is
+**high-volume and on the join hot path**, and the existing chains **sign per append
+under a global advisory lock held across that sign** — which is now a **Vault
+network round-trip** (ADR-005).
 
-**Decision (proposed).** Don't put presence on a per-event synchronously-signed
-chain. **Decouple ingestion from anchoring:** `join`/`leave` cheaply `INSERT` a
-presence row (no lock, no per-event signature); a periodic job builds a Merkle
-root over new rows and appends **one** signed checkpoint to the existing
-`audit_log`. Tamper-evidence = an inclusion proof against a signed root. If a
-smaller first step is wanted: a dedicated presence chain (like `consent_records`)
-with a checkpoint-ready schema.
+**Decision.** Decouple **ingestion** from **anchoring**:
+1. **Hot path writes cheaply to the DB.** `join`/`leave` `INSERT` a row into an
+   **append-only `presence_events` table** (UPDATE/DELETE blocked by triggers, the
+   same immutability mechanism already used for `audit_log` / `consent_records`),
+   carrying a monotonic sequence. **No advisory lock, no per-event signature** — so
+   joining stays fast.
+2. **A periodic checkpoint anchors them.** A background job (short interval, e.g.
+   10–30 s) builds a **Merkle tree** over the presence rows since the last
+   checkpoint and appends **one Vault-signed checkpoint entry into the single
+   global `audit_log` chain**, committing the Merkle root and the covered sequence
+   range (chained to the prior checkpoint).
+3. **Tamper-evidence = an inclusion proof** of a presence row against a checkpoint's
+   Merkle root, whose root is signed into the global chain.
 
-**Reasoning.** Presence is high-volume and on the join hot path. Per-event signing
-under a shared lock — now a Vault RTT per append — is a hard throughput ceiling
-and adds join latency. Checkpointing amortises signing (one Vault call per
-interval), keeps a single global anchor (no whole-shard-deletion gap), and makes
-"per-session" just a query index rather than many chains to manage. The cost is a
-short un-anchored window (mitigated by a short checkpoint interval) — the standard
-transparency-log trade-off.
+"Per-session" is a **query index** on `presence_events`, not a separate chain.
 
-**Rejected.** (a) Reusing the admin chain — couples low-volume admin with high-
-volume presence. (b) Per-event signing for presence given the Vault call. (c)
-Deriving access control from the audit trail — see ADR-011.
+**Reasoning.**
+- **Conflation rejected (the join-path cost).** Putting presence on the existing
+  chain means every join blocks on a global lock held across a Vault RTT, and
+  queues rare-but-important admin entries behind high-volume presence. Two harms at
+  once (join latency + audit throughput).
+- **Sharding-without-an-anchor rejected (the "global value" loss).** A single
+  chain's value is three *system-wide* properties: **(a) non-omission** — you can't
+  delete a session's events from the one interleaved sequence without breaking the
+  hash linkage; **(b) cross-domain provable ordering** — "suspended *after* joined,
+  *before* left"; **(c) one witnessable head** to anchor externally. Independent
+  per-session chains lose all three: a whole shard (an entire session's presence)
+  can be dropped with no trace — defeating the exact forensic question Decree 147
+  asks — ordering across domains degrades to forgeable wall-clock, and N heads go
+  un-witnessed. **The checkpoint restores all three** by re-anchoring the
+  high-volume data into the single signed chain (the Certificate-Transparency
+  model: per-log Merkle tree + signed tree head folded into a trusted root).
+- **The checkpoint window is covered in layers.** Between an event and the next
+  checkpoint a row is in the DB but not yet cryptographically anchored. **Append-only
+  triggers** make rows immutable at the SQL layer *immediately* (tampering needs
+  superuser/DDL, not ordinary writes); the checkpoint then **upgrades** that to
+  portable, externally-verifiable crypto proof seconds later. A checkpoint is **one
+  signature regardless of event volume**, so a short interval is cheap. (Optional
+  strongest non-omission: hand the joiner a signed join receipt at join time.) The
+  window is the price of removing per-event signing, and the triggers pay most of
+  it back instantly.
+
+**Considered and rejected.**
+- (A) Presence on the existing admin chain — conflation, above.
+- (B) A dedicated single presence chain, per-event signed — a single chain still
+  needs a serializing lock (contention at join concurrency) and pays the Vault RTT
+  per append.
+- (C) Per-session sharded chains — lose the global value unless anchored; even
+  anchored, more chains to manage than a checkpoint.
+- (Windowless alternative, recorded) Per-event signing with a **separate fast
+  in-process ed25519 key** (microseconds, not a Vault RTT) gives a zero-lag anchor,
+  but still needs a lock (→ contention/sharding) and puts that key in-process
+  (weaker custody). Acceptable trade for some, but not chosen: presence is
+  high-concurrency and we prefer one anchoring model + Vault-held keys.
+- (Out of scope) Deriving access control from the audit trail — see ADR-011; the
+  log is evidentiary, not an authorization source.
+
+**Consequences / how it lands.**
+- New `presence_events` table: append-only (triggers), monotonic seq, columns ~
+  `(id, seq, session_id, user_id, action[join|leave], role, occurred_at)`.
+- `session.Join`/`Leave` add a single cheap INSERT; no change to their latency
+  profile beyond one indexed insert.
+- New checkpoint worker (a long-running process or scheduled job) — the first piece
+  of background infra; build it so it's idempotent and resumable (records the last
+  covered seq).
+- Verifier support: given a presence row + its checkpoint, recompute the Merkle path
+  to the signed root, then verify that root in the global chain (reuses ADR-006's
+  signing/verification).
+- Signing via Vault (ADR-005): one sign per checkpoint amortises the RTT.
 
 ---
 
