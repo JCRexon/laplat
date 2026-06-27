@@ -1,11 +1,53 @@
+/* ---------------------------------------------------------------------------
+   Theme tokens. Default is a warm, light "learning" theme (cream base, red
+   primary, gold for achievement, green for success). Dark is opt-in via
+   data-theme="dark" on <html> (set by the topbar toggle; persisted in
+   localStorage and applied pre-paint by the inline script in app.html).
+--------------------------------------------------------------------------- */
 :root {
+  --bg: #faf6ef;            /* warm cream page */
+  --card: #ffffff;          /* raised surface */
+  --line: #ece3d4;          /* warm hairline */
+  --text: #211c18;          /* warm ink */
+  --muted: #6f655b;
+  --accent: #da251d;        /* Vietnamese flag red — brand, primary CTA, "live" */
+  --accent-press: #a3140f;  /* darker red: button bottom edge + red text */
+  --gold: #f5b301;          /* achievement / celebration accent */
+  --gold-soft: rgba(245, 179, 1, 0.16);
+  --gold-ink: #8a5a00;      /* readable gold text on light */
+  --success: #16a34a;       /* verified / completed / "correct" */
+  --success-soft: rgba(22, 163, 74, 0.12);
+  --live-soft: rgba(218, 37, 29, 0.10);
+  --error: #dc2626;
+  --input-bg: #fffdf9;
+
+  --radius: 12px;
+  --shadow-1: 0 1px 2px rgba(33, 28, 24, 0.06), 0 2px 8px rgba(33, 28, 24, 0.06);
+  --shadow-2: 0 4px 14px rgba(33, 28, 24, 0.10), 0 10px 30px rgba(33, 28, 24, 0.08);
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
   --bg: #0b0f17;
   --card: #141a24;
   --line: #232c3a;
   --text: #e6eaf0;
   --muted: #8b97a8;
-  --accent: #da251d; /* Vietnamese flag red */
+  --accent: #da251d;
+  --accent-press: #8e120d;
+  --gold: #ffcd00;
+  --gold-soft: rgba(255, 205, 0, 0.16);
+  --gold-ink: #ffcd00;
+  --success: #34d399;
+  --success-soft: rgba(52, 211, 153, 0.16);
+  --live-soft: rgba(218, 37, 29, 0.18);
   --error: #f87171;
+  --input-bg: #0e131c;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 6px 24px rgba(0, 0, 0, 0.5);
+
   color-scheme: dark;
 }
 
@@ -26,17 +68,29 @@ body {
   gap: 1.5rem;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: var(--shadow-1);
 }
-.brand { font-weight: 700; font-size: 1.1rem; color: var(--text); text-decoration: none; }
+.brand { font-weight: 800; font-size: 1.15rem; color: var(--text); text-decoration: none; letter-spacing: -0.01em; }
+/* Motif: a gold star before the wordmark — a quiet nod to the flag star. */
+.brand::before { content: "★"; color: var(--gold); margin-right: 0.4rem; }
 .topbar nav { display: flex; gap: 1rem; }
-.topbar nav a { color: var(--muted); text-decoration: none; }
-.topbar nav a:hover { color: var(--text); }
+.topbar nav a { color: var(--muted); text-decoration: none; font-weight: 500; }
+.topbar nav a:hover { color: var(--accent); }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; }
 .topbar-right form { margin: 0; }
 
+.theme-toggle { font-size: 1.1rem; line-height: 1; }
+
 .content { flex: 1; padding: 1.5rem; max-width: 720px; width: 100%; margin: 0 auto; }
 
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 1.5rem; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  box-shadow: var(--shadow-1);
+}
 .card.narrow { max-width: 380px; margin: 3rem auto; }
 .stack > * + * { margin-top: 1.25rem; }
 
@@ -46,6 +100,19 @@ h2 { font-size: 1.1rem; }
 .small { font-size: 0.85rem; }
 .error { color: var(--error); }
 
+/* Motif: a short red→gold underline marker under a page/section title. */
+.section-title { position: relative; padding-bottom: 0.45rem; }
+.section-title::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 2.75rem;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent) 62%, var(--gold) 62%);
+}
+
 .row { display: flex; align-items: center; gap: 0.75rem; }
 .spread { justify-content: space-between; }
 
@@ -53,24 +120,43 @@ input {
   width: 100%;
   padding: 0.6rem 0.75rem;
   margin: 0.5rem 0;
-  background: #0e131c;
+  background: var(--input-bg);
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--text);
   font-size: 1rem;
 }
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
 
+/* Tactile, "pushable" primary button: a solid fill with a darker bottom edge
+   that compresses on press, giving physical feedback (the learning-UI idiom). */
 button {
-  padding: 0.55rem 1rem;
+  padding: 0.55rem 1.1rem;
   background: var(--accent);
-  color: white;
+  color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 0.95rem;
+  font-weight: 600;
   cursor: pointer;
+  box-shadow: 0 3px 0 var(--accent-press);
+  transition: transform 0.05s ease, box-shadow 0.05s ease, filter 0.15s ease;
 }
+button:hover { filter: brightness(1.04); }
+button:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--accent-press); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-.link-btn { background: none; color: var(--muted); padding: 0.25rem 0; text-decoration: none; }
+
+/* Text/ghost buttons opt out of the tactile treatment. */
+.link-btn {
+  background: none;
+  color: var(--muted);
+  padding: 0.25rem 0;
+  text-decoration: none;
+  font-weight: 500;
+  box-shadow: none;
+}
+.link-btn:hover { filter: none; color: var(--accent); }
+.link-btn:active { transform: none; box-shadow: none; }
 .btn-link { color: var(--accent); text-decoration: none; font-weight: 600; }
 
 form { margin: 0; }
@@ -86,8 +172,8 @@ form { margin: 0; }
 }
 .tier-none { background: #6b7280; }
 .tier-declared { background: #0ea5e9; }
-.tier-phone_verified { background: #6366f1; }
-.tier-verified { background: #16a34a; }
+.tier-phone_verified { background: #2563eb; }
+.tier-verified { background: var(--success); }
 .tier-pending { background: #d97706; }
 
 .list { list-style: none; padding: 0; margin: 0; }
@@ -101,7 +187,7 @@ form { margin: 0; }
   margin-bottom: 0.75rem;
   opacity: 0.6;
 }
-.rung.done { opacity: 1; border-color: #1f3a2a; }
+.rung.done { opacity: 1; border-color: var(--success); }
 .rung.next { opacity: 1; border-color: var(--accent); }
 .rung-head { display: flex; align-items: center; gap: 0.5rem; }
 .check { font-weight: 700; }

@@ -28,7 +28,7 @@
 </script>
 
 <div class="stack">
-  <h1>My courses</h1>
+  <h1 class="section-title">My courses</h1>
 
   {#if data.classes.length === 0}
     <div class="empty-state">
@@ -58,13 +58,20 @@
               <p class="course-desc muted">{c.description}</p>
             {/if}
             {#if prog && prog.totalSessions > 0}
+              {@const pct = Math.round((prog.attended / prog.totalSessions) * 100)}
               <div class="progress">
-                <div class="progress-track">
-                  <div
-                    class="progress-fill"
-                    style="width: {Math.round((prog.attended / prog.totalSessions) * 100)}%"
-                  ></div>
-                </div>
+                <svg class="ring" viewBox="0 0 36 36" width="42" height="42" aria-hidden="true">
+                  <circle class="ring-bg" cx="18" cy="18" r="15.5" />
+                  <circle
+                    class="ring-fg {done?.complete ? 'ring-done' : ''}"
+                    cx="18"
+                    cy="18"
+                    r="15.5"
+                    pathLength="100"
+                    style="stroke-dasharray: {pct} 100"
+                  />
+                  <text class="ring-text" x="18" y="18">{pct}%</text>
+                </svg>
                 <span class="progress-label muted small">
                   Attended {prog.attended} of {prog.totalSessions} session{prog.totalSessions > 1 ? "s" : ""}
                 </span>
@@ -154,7 +161,8 @@
   .empty-state {
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-1);
     padding: 3rem 2rem;
     text-align: center;
     display: flex;
@@ -166,16 +174,21 @@
   .cta-btn {
     display: inline-block;
     padding: 0.55rem 1.25rem;
-    background: var(--accent, #2563eb);
+    background: var(--accent);
     color: #fff;
-    border-radius: 8px;
+    border-radius: 10px;
     font-size: 0.9rem;
-    font-weight: 600;
+    font-weight: 700;
     text-decoration: none;
-    transition: opacity 0.15s;
+    box-shadow: 0 3px 0 var(--accent-press);
+    transition: transform 0.05s ease, box-shadow 0.05s ease, filter 0.15s;
   }
   .cta-btn:hover {
-    opacity: 0.85;
+    filter: brightness(1.04);
+  }
+  .cta-btn:active {
+    transform: translateY(2px);
+    box-shadow: 0 1px 0 var(--accent-press);
   }
 
   /* Course list */
@@ -188,14 +201,19 @@
   .course-card {
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: var(--radius);
     overflow: hidden;
-    transition: border-color 0.15s;
+    box-shadow: var(--shadow-1);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.15s;
+  }
+  .course-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2);
   }
 
   .course-card.has-live {
-    border-color: #34d399;
-    box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.12);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--live-soft), var(--shadow-1);
   }
 
   .course-head {
@@ -223,9 +241,17 @@
     border-radius: 9999px;
     font-size: 0.75rem;
     font-weight: 700;
-    background: rgba(52, 211, 153, 0.18);
-    color: #059669;
+    background: var(--live-soft);
+    color: var(--accent);
     white-space: nowrap;
+    animation: live-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(218, 37, 29, 0.35); }
+    50% { box-shadow: 0 0 0 4px rgba(218, 37, 29, 0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-chip { animation: none; }
   }
 
   .done-chip {
@@ -234,8 +260,8 @@
     border-radius: 9999px;
     font-size: 0.75rem;
     font-weight: 700;
-    background: rgba(16, 163, 74, 0.14);
-    color: #16a34a;
+    background: var(--gold-soft);
+    color: var(--gold-ink);
     white-space: nowrap;
   }
 
@@ -245,26 +271,42 @@
     line-height: 1.5;
   }
 
-  /* Attendance progress */
+  /* Attendance progress ring */
   .progress {
-    margin-top: 0.75rem;
+    margin-top: 0.85rem;
     display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
+    align-items: center;
+    gap: 0.6rem;
   }
 
-  .progress-track {
-    height: 6px;
-    border-radius: 9999px;
-    background: var(--line);
-    overflow: hidden;
+  .ring {
+    flex-shrink: 0;
+    transform: rotate(-90deg);
   }
-
-  .progress-fill {
-    height: 100%;
-    border-radius: 9999px;
-    background: var(--accent, #2563eb);
-    transition: width 0.3s ease;
+  .ring-bg {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 3.5;
+  }
+  .ring-fg {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 3.5;
+    stroke-linecap: round;
+    transition: stroke-dasharray 0.5s ease;
+  }
+  .ring-fg.ring-done {
+    stroke: var(--gold);
+  }
+  /* Counter-rotate the centred percentage so it stays upright. */
+  .ring-text {
+    transform: rotate(90deg);
+    transform-origin: 18px 18px;
+    fill: var(--text);
+    font-size: 9px;
+    font-weight: 700;
+    text-anchor: middle;
+    dominant-baseline: central;
   }
 
   .progress-label {
@@ -299,7 +341,7 @@
   }
 
   .session-live {
-    background: rgba(52, 211, 153, 0.05);
+    background: var(--live-soft);
   }
 
   .session-info {
@@ -348,34 +390,39 @@
   }
 
   .s-live {
-    background: rgba(52, 211, 153, 0.18);
-    color: #059669;
+    background: var(--live-soft);
+    color: var(--accent);
   }
 
   .s-scheduled {
-    background: rgba(99, 102, 241, 0.12);
-    color: #6366f1;
+    background: var(--line);
+    color: var(--muted);
   }
 
   .s-ended {
-    background: #f3f4f6;
-    color: #9ca3af;
+    background: var(--line);
+    color: var(--muted);
   }
 
-  /* Buttons */
+  /* Tactile "Join" button */
   .join-btn {
     flex-shrink: 0;
-    padding: 0.35rem 0.85rem;
-    background: var(--accent, #2563eb);
+    padding: 0.4rem 0.9rem;
+    background: var(--accent);
     color: #fff;
-    border-radius: 8px;
+    border-radius: 9px;
     font-size: 0.85rem;
-    font-weight: 600;
+    font-weight: 700;
     text-decoration: none;
-    transition: opacity 0.15s;
+    box-shadow: 0 3px 0 var(--accent-press);
+    transition: transform 0.05s ease, box-shadow 0.05s ease, filter 0.15s;
   }
   .join-btn:hover {
-    opacity: 0.85;
+    filter: brightness(1.04);
+  }
+  .join-btn:active {
+    transform: translateY(2px);
+    box-shadow: 0 1px 0 var(--accent-press);
   }
 
   .watch-btn {
