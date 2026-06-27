@@ -1,16 +1,66 @@
 # Decision log
 
 A running record of architecture/structure questions raised about this project,
-the decisions taken, and — most importantly — the **reasoning**, so the choices
-can be reviewed and learned from later.
+the decisions taken, the **reasoning**, the **trade-offs accepted**, why anything
+was **deferred**, and the **conditions that should reopen** each call — so the
+choices can be reviewed and learned from later.
 
-Format: each entry is a lightweight ADR — Context (the question), Decision,
-Reasoning, Consequences, and links. Newest at the bottom; never edit a past
-entry's decision — supersede it with a new one.
+**Entry template (an ADR).** Include the fields that carry signal; not all apply
+to every entry:
+- **Context** — the question / forcing situation.
+- **Decision** — what was chosen.
+- **Reasoning** — why, including the higher-level judgement.
+- **Trade-offs** — what we *knowingly gave up*; the accepted downside.
+- **Alternatives** — options weighed and why not chosen (when there were real ones).
+- **Deferred / sequencing** — what's pushed out, why now-vs-later, what it's gated on.
+- **Assumptions** — things the decision rests on that could later prove false.
+- **Revisit when** — the trigger(s) that should reopen the decision.
+- **Confidence / review** — how settled it is, and where human *specialist* review
+  (crypto / security / legal) is warranted before production.
+- **Consequences / Links** — what it causes; issues/PRs.
+
+Newest at the bottom. **Decisions are never rewritten** — supersede with a new
+entry. An entry *may* be enriched with trade-offs / revisit-triggers / context
+without changing its decision.
 
 **Status legend:** `Accepted` (decided + implemented) · `Proposed` (recommended,
 awaiting a call) · `Pending` (decided in principle, not yet built) ·
 `Superseded` (replaced by a later entry).
+
+---
+
+## ADR-000 — How we make and record decisions (meta)
+**Date:** 2026-06-27 · **Status:** Accepted
+
+**Context.** This is a regulated platform (Decree 147 / PDPL, national-ID eKYC,
+tamper-evident audit) being built by a very small team. The number of cross-domain
+considerations — auth, applied cryptography, distributed systems, DB design,
+infra/DR, compliance, frontend security — exceeds what anyone reliably holds in
+their head. How do we make good decisions and not lose the *why*?
+
+**Decision / approach.**
+1. **Externalise every non-trivial structural decision** here as an ADR — with
+   reasoning, trade-offs, and a "revisit when" trigger. The log, not memory, is the
+   source of truth for *why*.
+2. **Prefer reversible, seam-based choices.** Put interfaces/adapters at the points
+   most likely to change (signing backend, blob store, OTP senders) so a decision
+   can be swapped cheaply rather than bet on.
+3. **Make "good enough" calls and defer depth — but record the deferral** (what,
+   why now-vs-later, what it's gated on), so deferral is a logged choice, not drift.
+4. **Buy human specialist review before production where stakes are highest** — in
+   particular applied **crypto/security** (token + audit signing, Merkle
+   checkpoints, key custody) and **Decree 147 / PDPL legal/privacy**. The reasoning
+   here is careful, but accountability and edge-cases warrant a specialist.
+5. **AI assists breadth and recall; the human owns judgement and accountability.**
+   The AI lowers the cost of considering many angles and can be confidently wrong;
+   decisions and their consequences remain the team's.
+
+**Reasoning.** Solo/small-team breadth is only tractable if it's written down and
+made reversible. The discipline above is what lets one person *steer* a team's
+worth of considerations without holding them all in-head.
+
+**Revisit when.** The team grows (add real review gates / ownership), or a decision
+here proves repeatedly wrong (tighten the process).
 
 ---
 
@@ -30,6 +80,13 @@ ci` enforces the lockfile exactly; that plus review is the right cost/benefit at
 this stage. A runtime swap (Bun) is a bigger change to make only when the dev
 stack stabilises.
 
+**Trade-offs.** Accept the npm ecosystem's exposure in exchange for a mainstream
+framework's velocity and docs; the thin dep list bounds the blast radius.
+**Deferred.** Bun — gated on the dev stack settling. **Revisit when.** A
+supply-chain incident touches one of our deps, the dep count grows materially, or
+the dev stack stabilises (then re-evaluate Bun). **Confidence/review.** High; low
+stakes.
+
 ---
 
 ## ADR-002 — Coalesce concurrent token refresh (single-flight)
@@ -47,6 +104,12 @@ refresh; entries drop on settle.
 warm-up is fragile. Keying by the request's `cookies` isolates requests while
 coalescing within one, spending the rotating token exactly once. No manual
 cleanup (WeakMap + `finally`).
+
+**Trade-offs.** Coalescing is per-request only; two *separate* requests still
+refresh independently — fine, they carry different cookies/tokens.
+**Assumptions.** One process holds the request's cookies object (true for the
+SvelteKit BFF). **Revisit when.** Moving to multi-instance with a shared session
+store, or if refresh-token semantics change. **Confidence/review.** High.
 
 ---
 
@@ -67,6 +130,14 @@ Group 3 item (a long-running process); not worth coupling to the completion work
 
 **Consequences.** Certificates (`/certificate/[classId]`) render only for a fully
 completed class. Instructor-confirmed completion can be layered later if needed.
+
+**Trade-offs.** The derived rule can't express *partial* completion or
+instructor-confirmed completion, and "attended every session" is strict (one
+missed session = not complete). Accepted for speed/simplicity. **Deferred.**
+Reminders — gated on the background-process infra also needed by ADR-010; build
+once that exists. **Revisit when.** Product wants partial/instructor-confirmed
+completion, or reminders get prioritised. **Confidence/review.** Medium — product
+semantics may evolve.
 
 ---
 
@@ -90,6 +161,13 @@ encryption/decryption layer** — the `*_enc` vault columns (name, DOB, email) a
 never written and can't be read. So the export shows them as "on file / not yet
 collected," never decrypted. Real PII display depends on the eKYC ingestion +
 crypto work landing first.
+
+**Trade-offs.** Adds friction (an OTP) to viewing one's own data; reuses OTP, so a
+**federated-only** account with no phone/email can't step up. **Assumptions.** The
+user has a phone or email factor. **Deferred / gated.** Actual PII display gated on
+the crypto layer + eKYC ingestion. **Revisit when.** The crypto layer lands (then
+revisit "reveal vs full re-auth"), or federated-only step-up is needed.
+**Confidence/review.** Medium; **security review of the grant flow before prod.**
 
 ---
 
@@ -118,6 +196,16 @@ removes the brittle, format-fragile manual pubkey-publishing step.
 fail), which aborts the enclosing transaction — see ADR-006. Per-event signing is
 now a network call — see ADR-010.
 
+**Trade-offs.** Signing becomes a network call (forced ADR-010's checkpoint
+design); Vault is a new operational dependency and an **availability coupling**
+(audited writes block if Vault is down — see ADR-006); the pre-prod overlay stores
+unseal material on a volume (pre-prod only). **Assumptions.** In-country
+self-hosting is viable; the team has Vault ops capacity. **Deferred.** Production
+auto-unseal (KMS/HSM seal) and least-privilege tokens; HSM/cloud KMS backends (seam
+ready). **Revisit when.** A hosting/KMS platform is chosen, or an HSM becomes
+available. **Confidence/review.** Design medium-high; **needs a crypto/security
+reviewer before prod** (key custody, rotation, unseal).
+
 ---
 
 ## ADR-006 — Audit integrity is preserved (and strengthened) by the signing seam
@@ -136,6 +224,13 @@ verifies a Vault-signed audit entry in `VerifyChain`.
 
 **Reasoning.** Tamper-evidence is a property of the payload + algorithm +
 verifier, none of which changed; only *where* the bytes get signed moved.
+
+**Trade-offs.** Availability for integrity: a Vault outage blocks audited
+mutations (suspend, grant, consent) — a deliberate fail-closed choice.
+**Revisit when.** Audited-write latency/availability becomes a real problem (then
+consider a separate fast local key for some chains, weighed against custody).
+**Confidence/review.** High that integrity is preserved; the availability trade is
+a conscious ops choice to confirm with whoever owns uptime.
 
 ---
 
@@ -172,6 +267,12 @@ root in `cmd/authd/main.go`, a shared kernel in `pkg/`, low inter-domain couplin
 domain), split **data ownership first** (#1 → #4 follow); leave `pkg/contracts`
 and `cmd/` wiring alone.
 
+**Trade-offs.** The shared store eases cross-domain transactions (a real benefit)
+at the cost of clean extraction boundaries. **Assumptions.** No near-term need to
+extract a domain into a separate service. **Revisit when.** A domain needs
+independent scaling or extraction → then do the data-ownership split first.
+**Confidence/review.** High (it's an assessment, not a build).
+
 ---
 
 ## ADR-008 — Security review: dev-vs-prod triage of 5 findings
@@ -186,9 +287,9 @@ dev artifacts?
 - **Un-audited session presence** — **real, env-independent.** Pending (ADR-010 /
   issue #45 item 2).
 - **Local-disk recordings / storage DoS** — mostly **dev artifact** (compose
-  volume; prod uses S3/GCS). The "shares the DB volume" claim is inaccurate (they
-  are separate volumes). A start-rate/quota limit is a separate, backend-independent
-  hardening.
+  volume; prod uses S3-compatible object storage per ADR-012). The "shares the DB
+  volume" claim is inaccurate (they are separate volumes). A start-rate/quota limit
+  is a separate, backend-independent hardening.
 - **MD5 `secure_link`** — **overstated.** Used as a keyed MAC with the secret as a
   *suffix* (not length-extension-vulnerable); the weak `devrecordingssecret` is the
   only dev artifact.
@@ -198,6 +299,13 @@ dev artifacts?
 
 **Reasoning.** "In dev" framing matters: don't spend effort hardening compose-only
 artifacts or theoretical crypto-aging; fix the two that exist identically in prod.
+
+**Trade-offs.** We deliberately leave the dev-only weaknesses in place in dev
+(they vanish in prod) rather than spend effort now. **Revisit when.** An
+"out-of-scope" item's context changes — e.g. recordings become *paid*, which
+raises the stakes on `secure_link` leakage (→ ADR-011) and on CSRF for purchase
+flows. **Confidence/review.** Triage high; an independent **security review before
+prod** is still worth it (this triage was AI-led).
 
 ---
 
@@ -216,6 +324,12 @@ service also early-returns on an already-terminal recording.
 legitimate out-of-order delivery at the data layer, in one cheap change. Cheaper
 and more complete than a `jti` cache (which stops only replay and adds state);
 `jti` dedupe remains optional defence-in-depth.
+
+**Trade-offs.** A terminal recording can't be legitimately re-opened/corrected via
+a later webhook (acceptable — terminal is terminal). **Deferred.** `jti` dedupe
+(defence-in-depth). **Revisit when.** A real need to amend a terminal recording
+arises, or replay defence-in-depth is wanted (add `jti`). **Confidence/review.**
+High; shipped with unit + integration tests.
 
 ---
 
@@ -287,18 +401,33 @@ network round-trip** (ADR-005).
 - (Out of scope) Deriving access control from the audit trail — see ADR-011; the
   log is evidentiary, not an authorization source.
 
+**Trade-offs.** A bounded un-anchored window (mitigated by triggers); a new
+**background process** (first in the codebase — deploy complexity); more
+operational moving parts (the checkpoint worker). **Assumptions.** Presence volume
+is high/concurrent enough to justify decoupling — if it turns out low, the
+windowless per-event-local-key option (recorded above) would be simpler.
+
+**Revisit when.** Measured presence volume is low (consider the simpler windowless
+option); or a regulator requires *participant-verifiable* presence (add signed join
+receipts); or the checkpoint worker's deploy model needs revisiting.
+
+**Confidence/review.** Design medium-high; **a crypto reviewer should check the
+Merkle/checkpoint construction and the window analysis before prod.**
+
 **Consequences / how it lands.**
 - New `presence_events` table: append-only (triggers), monotonic seq, columns ~
   `(id, seq, session_id, user_id, action[join|leave], role, occurred_at)`.
 - `session.Join`/`Leave` add a single cheap INSERT; no change to their latency
   profile beyond one indexed insert.
-- New checkpoint worker (a long-running process or scheduled job) — the first piece
-  of background infra; build it so it's idempotent and resumable (records the last
-  covered seq).
+- New checkpoint worker — build it idempotent and resumable (records the last
+  covered seq). Open sub-decision: goroutine in `authd` vs a separate `cmd/` worker
+  (lean: goroutine first; no new deployable).
 - Verifier support: given a presence row + its checkpoint, recompute the Merkle path
   to the signed root, then verify that root in the global chain (reuses ADR-006's
   signing/verification).
 - Signing via Vault (ADR-005): one sign per checkpoint amortises the RTT.
+- Build staged into two PRs: (1) append-only table + hot-path ingestion; (2) the
+  checkpoint worker + verifier.
 
 ---
 
@@ -321,6 +450,13 @@ to a stable, unforgeable identity (the session); the audit log *records* the
 access. Value rises once recordings are entitlement-gated, so this pairs with the
 payments/entitlements work; the expiry shortening + playback-audit entry are worth
 doing independently.
+
+**Trade-offs.** `auth_request` puts authd in the authz path of each playback (a
+small per-request cost) — chosen over leak-prone bare presigned/bearer URLs.
+**Deferred / gated.** Full value pairs with payments/entitlements; the interim
+expiry shortening + playback-audit entry can ship independently. **Revisit when.**
+Recordings become entitlement-gated (prioritise then). **Confidence/review.**
+Design settled; Pending build; security review of the serving authz before prod.
 
 ---
 
@@ -383,6 +519,15 @@ storage (all binary blobs) · *(File — only if a real POSIX need appears)*.
   changes the blast radius from full disk to unbounded cost, not the need to bound
   it); private subnet, TLS, **scoped per-purpose credentials** (egress write-only;
   serving read-only), **encryption at rest** (recordings are PII).
+
+**Trade-offs.** Self-hosting object storage is real operational burden; the
+runtime coupling puts storage DR on the app's availability critical path.
+**Assumptions.** In-country self-hosting is viable for residency. **Deferred.** The
+whole tier's build (Pending); a file/POSIX tier; and the self-host-vs-cloud
+sub-decision. **Revisit when.** A concrete POSIX need appears (add a file tier), or
+the residency/ops calculus shifts (cloud vs self-host). **Confidence/review.**
+Direction settled; **infra/SRE review for DR + capacity and security review for
+network/credential isolation before prod.**
 
 **Open sub-decision.** Self-hosted (MinIO / Ceph) vs cloud S3 — a trade between
 **data residency + control** (Decree 147/PDPL favours in-country self-host, per
