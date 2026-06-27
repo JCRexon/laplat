@@ -246,6 +246,12 @@ func (s *Service) HandleWebhookEvent(ctx context.Context, ev *livekit.WebhookEve
 	if !ok {
 		return nil // unknown egress id; stale or out-of-scope webhook
 	}
+	if isTerminal(rec.Status) {
+		// Already finished. Ignore any further event — a replayed or out-of-order
+		// webhook must never reopen a completed/failed/aborted recording. The store
+		// enforces this too (sticky terminal state); this just avoids the write.
+		return nil
+	}
 	status := mapStatus(ev.EgressInfo.Status)
 	terminal := isTerminal(status)
 	var outURI *string

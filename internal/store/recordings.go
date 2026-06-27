@@ -43,6 +43,13 @@ func (s *Store) SetRecordingEgress(ctx context.Context, id, egressID, status str
 
 // UpdateRecordingStatus moves a recording to a new status. When the status is
 // terminal, ended_at is stamped; outputURI and errMsg are written when non-nil.
+//
+// Terminal states are sticky: the WHERE clause refuses to update a recording that
+// is already completed/failed/aborted. This makes the transition monotonic, which
+// is the authoritative, race-safe defence against a replayed or out-of-order
+// egress webhook regressing a finished recording back to a live state (a single
+// SQL predicate, so two concurrent webhooks cannot both pass a read-then-write
+// check). A no-op update (already terminal) is not an error.
 func (s *Store) UpdateRecordingStatus(ctx context.Context, id, status string, terminal bool, outputURI, errMsg *string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE recordings
@@ -50,7 +57,8 @@ func (s *Store) UpdateRecordingStatus(ctx context.Context, id, status string, te
 		    output_uri = COALESCE($3, output_uri),
 		    error = COALESCE($4, error),
 		    ended_at = CASE WHEN $5 THEN now() ELSE ended_at END
-		WHERE id = $1`,
+		WHERE id = $1
+		  AND status NOT IN ('completed','failed','aborted')`,
 		id, status, outputURI, errMsg, terminal)
 	return err
 }
