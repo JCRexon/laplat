@@ -105,6 +105,23 @@ export interface ClassProgress {
   attended: number;
 }
 
+// GET /v1/me/completions — per-class completion + the learner's name for certs.
+export interface ClassCompletion {
+  classId: string;
+  title: string;
+  instructorName: string;
+  totalSessions: number;
+  endedSessions: number;
+  attendedEnded: number;
+  complete: boolean;
+  completedAt: string | null; // RFC3339
+}
+
+export interface CompletionsResponse {
+  learnerName: string;
+  completions: ClassCompletion[];
+}
+
 // GET /v1/me/stepup/request — which factor a step-up code went to.
 export interface StepUpChannel {
   channel: string; // 'phone' | 'email'

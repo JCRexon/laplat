@@ -54,6 +54,7 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h.mux.Handle("GET /v1/me/consents", h.requireAuth(http.HandlerFunc(h.handleMeConsents)))
 	h.mux.Handle("GET /v1/me/login-events", h.requireAuth(http.HandlerFunc(h.handleMeLoginEvents)))
 	h.mux.Handle("GET /v1/me/progress", h.requireAuth(http.HandlerFunc(h.handleMeProgress)))
+	h.mux.Handle("GET /v1/me/completions", h.requireAuth(http.HandlerFunc(h.handleMeCompletions)))
 	return h
 }
 

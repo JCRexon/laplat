@@ -56,6 +56,21 @@ type ClassProgress struct {
 	Attended      int
 }
 
+// ClassCompletion is a learner's completion state for one enrolled class. A class
+// counts as complete when every one of its sessions has ended and the learner
+// attended all of them — derivable from session status + participation, no
+// separate completion record needed.
+type ClassCompletion struct {
+	ClassID        string
+	Title          string
+	InstructorName string
+	TotalSessions  int
+	EndedSessions  int
+	AttendedEnded  int
+	Complete       bool
+	CompletedAt    *time.Time // last attended ended session; nil unless complete
+}
+
 // GetIdentityFactors returns all login methods linked to a user.
 func (s *Store) GetIdentityFactors(ctx context.Context, userID string) (IdentityFactors, error) {
 	var email, phone *string
@@ -227,6 +242,53 @@ func (s *Store) ListClassProgress(ctx context.Context, userID string) ([]ClassPr
 			return nil, err
 		}
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// ListClassCompletions returns completion state for each enrolled class. A class
+// is complete when all its sessions have ended and the learner attended every
+// one; CompletedAt is the last such session, used to date a certificate.
+func (s *Store) ListClassCompletions(ctx context.Context, userID string) ([]ClassCompletion, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			c.id,
+			c.title,
+			iu.display_name,
+			(SELECT count(*) FROM sessions s WHERE s.class_id = c.id) AS total,
+			(SELECT count(*) FROM sessions s WHERE s.class_id = c.id AND s.status = 'ended') AS ended,
+			(SELECT count(DISTINCT sp.session_id)
+			   FROM session_participants sp
+			   JOIN sessions s2 ON s2.id = sp.session_id
+			   WHERE s2.class_id = c.id AND s2.status = 'ended' AND sp.user_id = $1) AS attended_ended,
+			(SELECT max(sp.joined_at)
+			   FROM session_participants sp
+			   JOIN sessions s3 ON s3.id = sp.session_id
+			   WHERE s3.class_id = c.id AND s3.status = 'ended' AND sp.user_id = $1) AS last_attended
+		FROM classes c
+		JOIN class_members m ON m.class_id = c.id
+		JOIN users iu ON iu.id = c.instructor_id
+		WHERE m.user_id = $1
+		ORDER BY m.enrolled_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ClassCompletion
+	for rows.Next() {
+		var c ClassCompletion
+		var lastAttended *time.Time
+		if err := rows.Scan(&c.ClassID, &c.Title, &c.InstructorName,
+			&c.TotalSessions, &c.EndedSessions, &c.AttendedEnded, &lastAttended); err != nil {
+			return nil, err
+		}
+		c.Complete = c.TotalSessions > 0 &&
+			c.EndedSessions == c.TotalSessions &&
+			c.AttendedEnded == c.EndedSessions
+		if c.Complete {
+			c.CompletedAt = lastAttended
+		}
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }

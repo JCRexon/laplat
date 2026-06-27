@@ -1,7 +1,14 @@
 import { redirect } from "@sveltejs/kit";
 import type { PageServerLoad } from "./$types";
 import { api, ApiError } from "$lib/server/authd";
-import type { ClassView, SessionSummary, RecordingView, ClassProgress } from "$lib/types";
+import type {
+  ClassView,
+  SessionSummary,
+  RecordingView,
+  ClassProgress,
+  CompletionsResponse,
+  ClassCompletion,
+} from "$lib/types";
 
 export interface EnrolledClass extends ClassView {
   sessions: SessionSummary[];
@@ -48,19 +55,33 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
     })
   );
 
-  // Attendance per class — best-effort; absent map just hides the progress line.
+  // Attendance + completion per class — best-effort; absent maps just hide those
+  // lines. Fetched together since both decorate the same course cards.
   const progressByClass: Record<string, ClassProgress> = {};
-  try {
-    const rows = (await api<{ progress: ClassProgress[] }>(cookies, "/v1/me/progress")).progress ?? [];
-    for (const p of rows) progressByClass[p.classId] = p;
-  } catch {
-    // Not available — not an error.
-  }
+  const completionByClass: Record<string, ClassCompletion> = {};
+  await Promise.all([
+    (async () => {
+      try {
+        const rows = (await api<{ progress: ClassProgress[] }>(cookies, "/v1/me/progress")).progress ?? [];
+        for (const p of rows) progressByClass[p.classId] = p;
+      } catch {
+        // Not available — not an error.
+      }
+    })(),
+    (async () => {
+      try {
+        const rows = (await api<CompletionsResponse>(cookies, "/v1/me/completions")).completions ?? [];
+        for (const c of rows) completionByClass[c.classId] = c;
+      } catch {
+        // Not available — not an error.
+      }
+    })(),
+  ]);
 
   const classes: EnrolledClass[] = enrolled.map((c, i) => ({
     ...c,
     sessions: sessionsPerClass[i],
   }));
 
-  return { classes, recordingsBySession, progressByClass };
+  return { classes, recordingsBySession, progressByClass, completionByClass };
 };

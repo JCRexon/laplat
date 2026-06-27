@@ -42,6 +42,7 @@
         {@const upcomingSessions = c.sessions.filter(s => s.status === "scheduled")}
         {@const endedWithRecs = c.sessions.filter(s => s.status === "ended" && data.recordingsBySession[s.sessionId]?.length)}
         {@const prog = data.progressByClass[c.id]}
+        {@const done = data.completionByClass[c.id]}
 
         <div class="course-card {liveSessions.length ? 'has-live' : ''}">
           <div class="course-head">
@@ -49,6 +50,8 @@
               <h2 class="course-title">{c.title}</h2>
               {#if liveSessions.length}
                 <span class="live-chip">● Live now</span>
+              {:else if done?.complete}
+                <span class="done-chip">✓ Completed</span>
               {/if}
             </div>
             {#if c.description}
@@ -126,6 +129,9 @@
 
           <div class="course-foot">
             <a href="/catalog" class="text-link">View in catalog</a>
+            {#if done?.complete}
+              <a href="/certificate/{c.id}" class="cert-link">View certificate →</a>
+            {/if}
           </div>
         </div>
       {/each}
@@ -219,6 +225,17 @@
     font-weight: 700;
     background: rgba(52, 211, 153, 0.18);
     color: #059669;
+    white-space: nowrap;
+  }
+
+  .done-chip {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: rgba(16, 163, 74, 0.14);
+    color: #16a34a;
     white-space: nowrap;
   }
 
@@ -382,6 +399,10 @@
     padding: 0.6rem 1.25rem;
     border-top: 1px solid var(--line);
     background: var(--bg, #f9fafb);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
   }
 
   .text-link {
@@ -391,6 +412,16 @@
   }
   .text-link:hover {
     color: var(--accent, #2563eb);
+    text-decoration: underline;
+  }
+
+  .cert-link {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent, #2563eb);
+    text-decoration: none;
+  }
+  .cert-link:hover {
     text-decoration: underline;
   }
 </style>
