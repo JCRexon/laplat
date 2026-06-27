@@ -34,4 +34,5 @@ Start with **DECISIONS.md** if you want the *why* behind how the project is
 shaped; it links out to the deeper design docs above.
 
 ---
+The contents of this repository are closed-source, proprietary, and not authorized for public use, modification, or redistribution.
 Copyright (c) 2026 James Miles. All Rights Reserved.
