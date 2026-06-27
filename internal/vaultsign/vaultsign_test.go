@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jcrexon/laplat/internal/audit"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
 )
@@ -77,6 +78,51 @@ func TestVaultSigner_RoundTrip(t *testing.T) {
 	v := token.NewVerifier(map[string]ed25519.PublicKey{"k1": pub})
 	if _, err := v.Verify(tok); err != nil {
 		t.Fatalf("Verify of Vault-signed token failed: %v", err)
+	}
+}
+
+// An audit entry signed via the Vault backend verifies in VerifyChain under the
+// matching public key — the tamper-evidence guarantee is unchanged by moving the
+// key into Vault (same Ed25519 signature over the same entry hash, same verifier).
+func TestVaultSigner_AuditChainVerifies(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(nil)
+	srv := fakeTransit(t, priv, "s3cr3t")
+	defer srv.Close()
+
+	ks, err := New(Config{
+		Address: srv.URL, Token: "s3cr3t", Mount: "transit", KeyName: "audit", KeyID: "k1",
+	}, srv.Client())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	asig, err := audit.NewSignerFromKeySigner(ks)
+	if err != nil {
+		t.Fatalf("audit.NewSignerFromKeySigner: %v", err)
+	}
+
+	e := contracts.AuditEntry{
+		SchemaVersion: contracts.AuditSchemaVersion,
+		Seq:           1,
+		OccurredAt:    1000,
+		ActorID:       "mod-1",
+		ActorRole:     contracts.AuditRoleModerator,
+		Action:        contracts.ActionUserSuspended,
+		TargetType:    "user",
+		TargetID:      "u-1",
+		Metadata:      []byte("{}"),
+		PrevHash:      audit.GenesisHash(),
+		SigningKeyID:  asig.KeyID(),
+	}
+	e.EntryHash = audit.Hash(e)
+	sig, err := asig.Sign(e.EntryHash)
+	if err != nil {
+		t.Fatalf("audit Sign via vault: %v", err)
+	}
+	e.Signature = sig
+
+	v := audit.NewVerifier(map[string]ed25519.PublicKey{"k1": pub})
+	if err := v.VerifyChain([]contracts.AuditEntry{e}); err != nil {
+		t.Fatalf("VerifyChain rejected a Vault-signed audit entry: %v", err)
 	}
 }
 
