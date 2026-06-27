@@ -32,3 +32,6 @@ the pre-prod overlay with Vault-backed signing.
 
 Start with **DECISIONS.md** if you want the *why* behind how the project is
 shaped; it links out to the deeper design docs above.
+
+---
+Copyright (c) 2026 James Miles. All Rights Reserved.
