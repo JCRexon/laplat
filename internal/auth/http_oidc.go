@@ -82,6 +82,7 @@ func (h *Handler) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		writeSessionError(w, err)
 		return
 	}
+	h.recordLogin(r.Context(), sess.AccessClaims.Subject, provider)
 	writeSession(w, sess)
 }
 

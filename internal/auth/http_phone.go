@@ -81,5 +81,6 @@ func (h *Handler) handlePhoneVerify(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	h.recordLogin(r.Context(), sess.AccessClaims.Subject, "phone")
 	writeSession(w, sess)
 }

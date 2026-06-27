@@ -8,6 +8,7 @@ import type { Session } from "$lib/types";
 // choice (see README): the browser holds no account credentials.
 const AT = "lp_at"; // access token
 const RT = "lp_rt"; // refresh token
+const STEP = "lp_step"; // short-lived step-up (re-auth) grant token
 
 // Secure by default in production. COOKIE_SECURE=false allows running a
 // production build over plain http (the local docker-compose demo), where the
@@ -34,3 +35,14 @@ export function clearSession(cookies: Cookies) {
 
 export const accessCookie = (c: Cookies) => c.get(AT);
 export const refreshCookie = (c: Cookies) => c.get(RT);
+
+// Step-up grant: a short-lived token proving the user re-authenticated for a
+// sensitive surface (the data export). Held httpOnly like the session tokens;
+// the browser's JS never sees it.
+export function setStepUp(cookies: Cookies, token: string, maxAgeSec: number) {
+  cookies.set(STEP, token, { ...base, maxAge: Math.max(1, maxAgeSec) });
+}
+export function clearStepUp(cookies: Cookies) {
+  cookies.delete(STEP, { path: "/" });
+}
+export const stepUpCookie = (c: Cookies) => c.get(STEP);

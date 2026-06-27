@@ -90,6 +90,57 @@ export interface ConsentHistoryEntry {
   grantedAt: string; // RFC3339
 }
 
+// GET /v1/me/login-events — recent authentication activity.
+export interface LoginEvent {
+  id: string;
+  method: string; // 'email' | 'phone' | 'google' | 'apple' | 'zalo'
+  createdAt: string; // RFC3339
+}
+
+// GET /v1/me/progress — attendance per enrolled class.
+export interface ClassProgress {
+  classId: string;
+  title: string;
+  totalSessions: number;
+  attended: number;
+}
+
+// GET /v1/me/stepup/request — which factor a step-up code went to.
+export interface StepUpChannel {
+  channel: string; // 'phone' | 'email'
+  hint: string; // masked target
+}
+
+// GET /v1/me/data-export — consolidated right-of-access view.
+export interface DataExport {
+  profile: {
+    userId: string;
+    handle: string;
+    displayName: string;
+    bio: string;
+    locale: string;
+    status: string;
+    createdAt: string;
+  };
+  identity: {
+    verificationStatus: string;
+    isAdult: boolean;
+    verifiedAt: string | null;
+    retainUntil: string | null;
+    fullNameOnFile: boolean;
+    dobOnFile: boolean;
+    emailOnFile: boolean;
+  };
+  loginMethods: {
+    email: string | null;
+    phone: string | null;
+    federated: string[];
+  };
+  enrolledClasses: { id: string; title: string; status: string }[];
+  tosAcceptances: { version: string; adultAttested: boolean; acceptedAt: string }[];
+  activity: { sessionCount: number; consentCount: number };
+}
+
 // GET /v1/recordings/sessions/{id}/playback — completed recordings (free tier).
 export interface RecordingView {
   id: string;

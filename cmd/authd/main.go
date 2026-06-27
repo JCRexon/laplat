@@ -127,6 +127,11 @@ func run(log *slog.Logger) error {
 		log.Info("oidc federated login enabled",
 			"google", cfg.OIDC.Google != nil, "apple", cfg.OIDC.Apple != nil)
 	}
+	// Senders are captured so the step-up (re-auth) flow can reuse them — the
+	// natural step-up for a passwordless platform is a fresh OTP to the user's
+	// registered factor.
+	var emailSender auth.CodeSender
+	var smsSender auth.SMSSender
 	if cfg.SMTP != nil {
 		sender, err := emailsend.NewSMTPSender(emailsend.SMTPConfig{
 			Host: cfg.SMTP.Host, Port: cfg.SMTP.Port, From: cfg.SMTP.From,
@@ -135,6 +140,7 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		emailSender = sender
 		el, err := auth.NewEmailLogin(st, svc, sender)
 		if err != nil {
 			return err
@@ -142,7 +148,8 @@ func run(log *slog.Logger) error {
 		handler.RegisterEmailLogin(el)
 		log.Info("email-otp login enabled", "from", cfg.SMTP.From)
 	} else if cfg.DevOTPConsole {
-		el, err := auth.NewEmailLogin(st, svc, otpconsole.New(log, "email"))
+		emailSender = otpconsole.New(log, "email")
+		el, err := auth.NewEmailLogin(st, svc, emailSender)
 		if err != nil {
 			return err
 		}
@@ -154,6 +161,7 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+		smsSender = sender
 		pl, err := auth.NewPhoneLogin(st, svc, sender)
 		if err != nil {
 			return err
@@ -161,12 +169,25 @@ func run(log *slog.Logger) error {
 		handler.RegisterPhoneLogin(pl)
 		log.Info("phone-otp login enabled", "provider", cfg.SMS.Provider)
 	} else if cfg.DevOTPConsole {
-		pl, err := auth.NewPhoneLogin(st, svc, otpconsole.New(log, "sms"))
+		smsSender = otpconsole.New(log, "sms")
+		pl, err := auth.NewPhoneLogin(st, svc, smsSender)
 		if err != nil {
 			return err
 		}
 		handler.RegisterPhoneLogin(pl)
 		log.Warn("phone-otp login enabled with DEV CONSOLE sender — codes are logged, never use in production")
+	}
+
+	// Step-up re-authentication + the consolidated data export (PDPL right-of-
+	// access). Available whenever at least one OTP sender exists; federated-only
+	// accounts with no phone/email get a clear "unavailable" response.
+	if emailSender != nil || smsSender != nil {
+		stepUp, err := auth.NewStepUp(st, smsSender, emailSender)
+		if err != nil {
+			return err
+		}
+		handler.RegisterStepUp(stepUp)
+		log.Info("step-up re-auth + data export enabled")
 	}
 
 	// Compose the API: auth at "/", class management always, and live sessions

@@ -69,5 +69,6 @@ func (h *Handler) handleEmailVerify(w http.ResponseWriter, r *http.Request) {
 		writeSessionError(w, err)
 		return
 	}
+	h.recordLogin(r.Context(), sess.AccessClaims.Subject, "email")
 	writeSession(w, sess)
 }

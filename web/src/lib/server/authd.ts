@@ -18,10 +18,11 @@ export class ApiError extends Error {
 interface Init {
   method?: string;
   body?: unknown;
+  headers?: Record<string, string>;
 }
 
 function call(path: string, init: Init, token?: string): Promise<Response> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...init.headers };
   if (init.body !== undefined) headers["content-type"] = "application/json";
   if (token) headers["authorization"] = `Bearer ${token}`;
   return fetch(`${BASE}${path}`, {
