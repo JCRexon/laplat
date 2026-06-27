@@ -119,6 +119,50 @@ func TestSession_ClassHostAndParticipant(t *testing.T) {
 	}
 }
 
+// Join and leave are recorded on the append-only presence trail, in order, with
+// the role held at the time (ADR-010).
+func TestSession_PresenceRecorded(t *testing.T) {
+	svc, st, ctx := newSvc(t)
+	host := mkUser(t, st, ctx, "phost", contracts.IdentityPhoneVerified, contracts.CapCanInstruct)
+	learner := mkUser(t, st, ctx, "plearner", contracts.IdentityPhoneVerified)
+	classID := mkClass(t, st, ctx, "pclass", "phost")
+
+	sess, err := svc.CreateSession(ctx, host, "class", &classID, nil)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := svc.Join(ctx, host, sess.ID); err != nil {
+		t.Fatalf("host join: %v", err)
+	}
+	if _, err := svc.Join(ctx, learner, sess.ID); err != nil {
+		t.Fatalf("learner join: %v", err)
+	}
+	if err := svc.Leave(ctx, learner, sess.ID); err != nil {
+		t.Fatalf("learner leave: %v", err)
+	}
+
+	ev, err := st.ListPresenceBySession(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("list presence: %v", err)
+	}
+	if len(ev) != 3 {
+		t.Fatalf("presence events = %d, want 3: %+v", len(ev), ev)
+	}
+	want := []struct{ user, action, role string }{
+		{"phost", "join", session.RoleHost},
+		{"plearner", "join", session.RoleParticipant},
+		{"plearner", "leave", session.RoleParticipant},
+	}
+	for i, w := range want {
+		if ev[i].UserID != w.user || ev[i].Action != w.action || ev[i].Role != w.role {
+			t.Fatalf("ev[%d] = %+v, want %v", i, ev[i], w)
+		}
+	}
+	if !(ev[0].Seq < ev[1].Seq && ev[1].Seq < ev[2].Seq) {
+		t.Fatalf("seq not monotonic: %d %d %d", ev[0].Seq, ev[1].Seq, ev[2].Seq)
+	}
+}
+
 // Tier gating: a declared-only user cannot create a class/direct or join.
 func TestSession_TierGating(t *testing.T) {
 	svc, st, ctx := newSvc(t)

@@ -26,6 +26,12 @@ const (
 	RoleParticipant = "participant" // joiner: publishes in direct, subscribes in class
 )
 
+// Presence-trail actions (ADR-010): the immutable join/leave record.
+const (
+	presenceJoin  = "join"
+	presenceLeave = "leave"
+)
+
 // Errors (mapped to status codes by the HTTP layer).
 var (
 	ErrForbidden     = errors.New("session: forbidden for this assurance tier or role")
@@ -51,6 +57,7 @@ type Repo interface {
 	RemoveParticipant(ctx context.Context, sessionID, userID string) error
 	ListActiveParticipants(ctx context.Context, sessionID string) ([]store.SessionParticipant, error)
 	ListSessionsByClass(ctx context.Context, classID string) ([]store.Session, error)
+	AppendPresenceEvent(ctx context.Context, id, sessionID, userID, action, role string) error
 }
 
 // Service orchestrates sessions and grants.
@@ -164,6 +171,13 @@ func (s *Service) Join(ctx context.Context, claims *contracts.AccessTokenClaims,
 	if err != nil {
 		return JoinResult{}, err
 	}
+	// Record presence on the tamper-evident trail (ADR-010). Fail-closed: a live
+	// admission must leave a presence record, mirroring "no action without its
+	// trail" — and the write is a cheap append, so a failure here is a real DB
+	// fault, not routine.
+	if err := s.repo.AppendPresenceEvent(ctx, s.NewID(), sess.ID, claims.Subject, presenceJoin, role); err != nil {
+		return JoinResult{}, err
+	}
 	return JoinResult{
 		SessionID: sess.ID,
 		Room:      sess.LivekitRoom,
@@ -232,8 +246,23 @@ func (s *Service) Detail(ctx context.Context, claims *contracts.AccessTokenClaim
 	return sess, parts, nil
 }
 
-// Leave removes the caller from the session's active participants.
+// Leave removes the caller from the session's active participants and records a
+// departure on the presence trail. The presence event is recorded only when the
+// caller was actually present (you can't leave a room you're not in), carrying the
+// role they held.
 func (s *Service) Leave(ctx context.Context, claims *contracts.AccessTokenClaims, sessionID string) error {
+	parts, err := s.repo.ListActiveParticipants(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	for _, p := range parts {
+		if p.UserID == claims.Subject {
+			if err := s.repo.AppendPresenceEvent(ctx, s.NewID(), sessionID, claims.Subject, presenceLeave, p.Role); err != nil {
+				return err
+			}
+			break
+		}
+	}
 	return s.repo.RemoveParticipant(ctx, sessionID, claims.Subject)
 }
 
