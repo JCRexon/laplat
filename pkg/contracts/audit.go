@@ -20,6 +20,10 @@ const (
 	ActionInstructorGranted   AuditAction = "instructor.granted"
 	ActionInstructorRevoked   AuditAction = "instructor.revoked"
 	ActionInstructorSelfGrant AuditAction = "instructor.self_granted"
+	// ActionPresenceCheckpoint records a Merkle root over a range of presence
+	// events, anchoring the high-volume presence trail into this signed chain
+	// (ADR-010). A system action; metadata carries the root and covered range.
+	ActionPresenceCheckpoint AuditAction = "presence.checkpoint"
 )
 
 // Audit actor roles — the authority under which an action was taken.

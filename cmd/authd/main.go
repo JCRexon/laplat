@@ -32,6 +32,7 @@ import (
 	"github.com/jcrexon/laplat/internal/livekit"
 	"github.com/jcrexon/laplat/internal/moderation"
 	"github.com/jcrexon/laplat/internal/otpconsole"
+	"github.com/jcrexon/laplat/internal/presence"
 	"github.com/jcrexon/laplat/internal/recording"
 	"github.com/jcrexon/laplat/internal/session"
 	"github.com/jcrexon/laplat/internal/store"
@@ -266,6 +267,18 @@ func run(log *slog.Logger) error {
 	}
 	var api http.Handler = apiMux
 
+	// Presence checkpoint worker (ADR-010 stage 2): periodically folds a
+	// Vault-signed Merkle root over new presence events into the audit chain. Runs
+	// in-process (no separate deployable); disabled when the interval is 0.
+	if cfg.PresenceCheckpointInterval > 0 {
+		presenceSvc, err := presence.NewService(st, audit.NewVerifier(verifyKeys))
+		if err != nil {
+			return err
+		}
+		go runPresenceCheckpoints(ctx, log, presenceSvc, cfg.PresenceCheckpointInterval)
+		log.Info("presence checkpoint worker enabled", "interval", cfg.PresenceCheckpointInterval)
+	}
+
 	// Rate-limit the API per client IP, but NOT the health probes (k8s must
 	// always reach them). Then wrap everything in request-id/logging/recovery.
 	limiter := httpx.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
@@ -340,6 +353,29 @@ func buildSigning(ctx context.Context, cfg config.Config) (signing.KeySigner, ma
 		verify[cfg.Kid] = pub
 	}
 	return vs, verify, nil
+}
+
+// runPresenceCheckpoints ticks the presence checkpoint worker until the context is
+// cancelled. Each tick folds new presence events into one signed Merkle root;
+// failures are logged and retried on the next tick (the work is resumable).
+func runPresenceCheckpoints(ctx context.Context, log *slog.Logger, svc *presence.Service, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			wrote, err := svc.Checkpoint(ctx)
+			if err != nil {
+				log.Error("presence checkpoint failed", "err", err)
+				continue
+			}
+			if wrote {
+				log.Info("presence checkpoint written")
+			}
+		}
+	}
 }
 
 // waitForDB pings the pool until it succeeds or a bounded deadline passes. A

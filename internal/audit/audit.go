@@ -73,6 +73,25 @@ func NewVerifier(keys map[string]ed25519.PublicKey) *Verifier {
 	return &Verifier{keys: keys}
 }
 
+// VerifyEntry verifies a single entry's integrity in isolation: its EntryHash
+// must match the recomputed hash (no field altered) and its signature must verify
+// under its key id. It does NOT check chain linkage (prev_hash) — use VerifyChain
+// for that. This is what an inclusion-proof verifier needs to trust the signed
+// Merkle root carried in a checkpoint entry (ADR-010).
+func (v *Verifier) VerifyEntry(e contracts.AuditEntry) error {
+	if want := Hash(e); !bytes.Equal(e.EntryHash, want) {
+		return fmt.Errorf("audit: tampered entry at seq %d (hash mismatch)", e.Seq)
+	}
+	pub, ok := v.keys[e.SigningKeyID]
+	if !ok {
+		return fmt.Errorf("audit: unknown signing key %q at seq %d", e.SigningKeyID, e.Seq)
+	}
+	if !ed25519.Verify(pub, e.EntryHash, e.Signature) {
+		return fmt.Errorf("audit: bad signature at seq %d", e.Seq)
+	}
+	return nil
+}
+
 // VerifyChain verifies entries in seq order: each PrevHash must equal the prior
 // EntryHash (chain intact), each EntryHash must equal the recomputed hash (no
 // field altered), and each signature must verify under its key id. A failure
