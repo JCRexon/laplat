@@ -1,9 +1,12 @@
 package vaultsign
 
 import (
+	"context"
 	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -140,6 +143,45 @@ func TestVaultSigner_AuthError(t *testing.T) {
 	}
 	if _, err := ks.SignRaw([]byte("hello")); err == nil {
 		t.Fatal("expected error on auth failure, got nil")
+	}
+}
+
+// PublicKey fetches and parses the transit key in whichever form Vault returns
+// it (raw base64 or PEM SPKI).
+func TestVaultSigner_PublicKey(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(nil)
+	der, _ := x509.MarshalPKIXPublicKey(pub)
+	pemStr := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+
+	forms := map[string]string{
+		"raw-base64": base64.StdEncoding.EncodeToString(pub),
+		"pem-spki":   pemStr,
+		"der-base64": base64.StdEncoding.EncodeToString(der),
+	}
+	for name, pubField := range forms {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"data": map[string]any{
+						"latest_version": 1,
+						"keys":           map[string]any{"1": map[string]any{"public_key": pubField}},
+					},
+				})
+			}))
+			defer srv.Close()
+
+			ks, err := New(Config{Address: srv.URL, Token: "t", KeyName: "k", KeyID: "k1"}, srv.Client())
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			got, err := ks.PublicKey(context.Background())
+			if err != nil {
+				t.Fatalf("PublicKey: %v", err)
+			}
+			if !got.Equal(pub) {
+				t.Fatalf("fetched public key does not match for form %s", name)
+			}
+		})
 	}
 }
 

@@ -60,38 +60,46 @@ npm install
 API_BASE=http://localhost:8080 npm run dev   # http://localhost:5173
 ```
 
-## Production signing: Vault Transit (key never in env)
+## Pre-prod / production signing: Vault Transit (key never in env)
 
-For dev the Ed25519 signing key is an env var (`LAPLAT_TOKEN_SIGNING_KEY`). In
-production the key should never be a plaintext env var — delegate signing to a
+For dev the Ed25519 signing key is an env var (`LAPLAT_TOKEN_SIGNING_KEY`).
+Beyond dev the key should never be a plaintext env var — delegate signing to a
 self-hosted **HashiCorp Vault** Transit engine (no cloud required). Token and
 audit/consent signing then happen via Vault; the private key never enters the
-process.
+process, and `authd` fetches its own public key from Vault at startup (no manual
+pubkey publishing).
 
-One-time Vault setup:
+### Pre-prod: one command
+
+A ready-made overlay brings up a persistent Vault (file storage), auto-initialises
+and unseals it, creates the Transit key, and points `authd` at it:
+
+```sh
+docker compose -f compose.yaml -f compose.preprod.yaml up --build
+```
+
+The signing key persists across restarts, so issued tokens and the audit/consent
+chain stay verifiable. See the header of `compose.preprod.yaml` for caveats (it
+only hardens signing, and stores unseal material in a volume — pre-prod only).
+
+### Running authd against your own Vault
 
 ```sh
 vault secrets enable transit
 vault write -f transit/keys/laplat-signing type=ed25519
-# Export the public key and publish it to the verifiers (see below):
-vault read -field=public_key transit/keys/laplat-signing  # base64 of the ed25519 pubkey
-```
 
-Run `authd` against Vault (omit `LAPLAT_TOKEN_SIGNING_KEY` entirely):
-
-```sh
+# authd: omit LAPLAT_TOKEN_SIGNING_KEY entirely.
+export LAPLAT_TOKEN_KID="prod-1"
 export LAPLAT_VAULT_ADDR="https://127.0.0.1:8200"
 export LAPLAT_VAULT_TOKEN="<token with update on transit/sign/laplat-signing>"
 export LAPLAT_VAULT_TRANSIT_KEY="laplat-signing"
-# Vault can't hand us a private key to derive the public one, so publish the
-# public key for this kid yourself:
-export LAPLAT_TOKEN_KID="prod-1"
-export LAPLAT_TOKEN_VERIFY_KEYS="prod-1:<base64 ed25519 public key from above>"
 ```
 
 `LAPLAT_VAULT_TRANSIT_MOUNT` defaults to `transit`. If any of addr/token/key is
-set, all three are required. The signing seam is backend-agnostic, so a PKCS#11
-HSM or cloud KMS can be added later by implementing the same `signing.KeySigner`.
+set, all three are required. authd fetches the public key for `LAPLAT_TOKEN_KID`
+from Vault automatically; you may still pin it via `LAPLAT_TOKEN_VERIFY_KEYS` if
+you prefer. The signing seam is backend-agnostic, so a PKCS#11 HSM or cloud KMS
+can be added later by implementing the same `signing.KeySigner`.
 
 ## Limits of the local stack
 

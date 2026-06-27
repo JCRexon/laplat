@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -71,8 +72,9 @@ func run(log *slog.Logger) error {
 
 	// Select the signing backend once: Vault Transit (key never enters this
 	// process) when configured, otherwise the in-process env-var key. Both token
-	// and audit signing share it, exactly as they shared the raw key before.
-	keySigner, err := buildKeySigner(cfg)
+	// and audit signing share it, exactly as they shared the raw key before. With
+	// Vault, the public key is fetched from Vault and added to the verify set.
+	keySigner, verifyKeys, err := buildSigning(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -92,7 +94,7 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	validator := token.NewValidator(token.NewVerifier(cfg.VerifyKeys), st)
+	validator := token.NewValidator(token.NewVerifier(verifyKeys), st)
 	svc, err := auth.NewService(minter, st, cfg.RefreshTTL)
 	if err != nil {
 		return err
@@ -305,20 +307,39 @@ func run(log *slog.Logger) error {
 	}
 }
 
-// buildKeySigner selects the Ed25519 signing backend. With Vault configured the
-// private key stays in Vault and signing is a Transit call; otherwise the
-// in-process env-var key is used (the MVP default).
-func buildKeySigner(cfg config.Config) (signing.KeySigner, error) {
-	if cfg.Vault != nil {
-		return vaultsign.New(vaultsign.Config{
-			Address: cfg.Vault.Address,
-			Token:   cfg.Vault.Token,
-			Mount:   cfg.Vault.Mount,
-			KeyName: cfg.Vault.KeyName,
-			KeyID:   cfg.Kid,
-		}, nil)
+// buildSigning selects the Ed25519 signing backend and returns the verify-key
+// set to trust. With Vault configured the private key stays in Vault and signing
+// is a Transit call; the public key is fetched from Vault (unless already
+// published in EnvVerifyKeys) so the service can verify its own tokens. Without
+// Vault the in-process env-var key is used (the MVP default) and its public key
+// was already self-registered by config.Load.
+func buildSigning(ctx context.Context, cfg config.Config) (signing.KeySigner, map[string]ed25519.PublicKey, error) {
+	verify := cfg.VerifyKeys
+	if cfg.Vault == nil {
+		ks, err := signing.NewLocalKeySigner(cfg.Kid, cfg.SigningKey)
+		return ks, verify, err
 	}
-	return signing.NewLocalKeySigner(cfg.Kid, cfg.SigningKey)
+
+	vs, err := vaultsign.New(vaultsign.Config{
+		Address: cfg.Vault.Address,
+		Token:   cfg.Vault.Token,
+		Mount:   cfg.Vault.Mount,
+		KeyName: cfg.Vault.KeyName,
+		KeyID:   cfg.Kid,
+	}, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, ok := verify[cfg.Kid]; !ok {
+		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		pub, err := vs.PublicKey(fetchCtx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("fetch signing public key from vault: %w", err)
+		}
+		verify[cfg.Kid] = pub
+	}
+	return vs, verify, nil
 }
 
 // waitForDB pings the pool until it succeeds or a bounded deadline passes. A

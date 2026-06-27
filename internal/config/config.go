@@ -266,17 +266,13 @@ func Load(getenv func(string) string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	switch {
-	case cfg.SigningKey != nil:
-		// Ensure the signer can verify its own tokens.
+	// With a local key, register the signer's own public key so it can verify its
+	// own tokens. With Vault, the key isn't in this process — the wiring layer
+	// fetches the public key from Vault at startup (or the operator may still
+	// publish it via EnvVerifyKeys), so no derivation happens here.
+	if cfg.SigningKey != nil {
 		if _, ok := verify[cfg.Kid]; !ok {
 			verify[cfg.Kid] = cfg.SigningKey.Public().(ed25519.PublicKey)
-		}
-	default:
-		// Vault signing with no local key: the operator must publish the public
-		// key for this kid, since we cannot derive it from a key we don't hold.
-		if _, ok := verify[cfg.Kid]; !ok {
-			return Config{}, fmt.Errorf("config: with Vault signing, %s must include the public key for kid %q", EnvVerifyKeys, cfg.Kid)
 		}
 	}
 	cfg.VerifyKeys = verify

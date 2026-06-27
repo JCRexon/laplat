@@ -69,15 +69,20 @@ func TestLoad_VaultSigningMakesEnvKeyOptional(t *testing.T) {
 		t.Fatalf("expected no in-process signing key under Vault")
 	}
 
-	// But without the public key for the kid, Load must fail (we can't derive it).
-	if _, err := Load(env(map[string]string{
+	// Without a published pubkey, Load still succeeds: the wiring layer fetches
+	// the public key from Vault at startup, so config need not require it.
+	cfg2, err := Load(env(map[string]string{
 		EnvDBDSN:           "x",
 		EnvKid:             "kid-1",
 		EnvVaultAddr:       "https://127.0.0.1:8200",
 		EnvVaultToken:      "tok",
 		EnvVaultTransitKey: "laplat-signing",
-	})); err == nil {
-		t.Fatal("expected error when verify key for kid is absent under Vault")
+	}))
+	if err != nil {
+		t.Fatalf("vault without published pubkey should load: %v", err)
+	}
+	if _, ok := cfg2.VerifyKeys["kid-1"]; ok {
+		t.Fatal("did not expect a verify key for kid before runtime fetch")
 	}
 
 	// Partial Vault config (address without token/key) is an error.

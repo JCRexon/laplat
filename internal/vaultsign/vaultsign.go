@@ -11,12 +11,16 @@ package vaultsign
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -112,6 +116,81 @@ func (s *Signer) SignRaw(message []byte) ([]byte, error) {
 		return nil, fmt.Errorf("vaultsign: bad response: %w", err)
 	}
 	return parseTransitSignature(sr.Data.Signature)
+}
+
+type keyReadResponse struct {
+	Data struct {
+		LatestVersion int `json:"latest_version"`
+		Keys          map[string]struct {
+			PublicKey string `json:"public_key"`
+		} `json:"keys"`
+	} `json:"data"`
+}
+
+// PublicKey fetches the Ed25519 public key of the configured Transit key's latest
+// version. This lets the service self-publish its verify key — the operator need
+// not export it manually. Vault returns the public key as either raw base64 or a
+// PEM/DER SPKI depending on version, so both are handled.
+func (s *Signer) PublicKey(ctx context.Context) (ed25519.PublicKey, error) {
+	url := fmt.Sprintf("%s/v1/%s/keys/%s", s.cfg.Address, s.cfg.Mount, s.cfg.KeyName)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Vault-Token", s.cfg.Token)
+
+	res, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("vaultsign: read key failed: %w", err)
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(res.Body, 1<<16))
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("vaultsign: vault returned %d reading key: %s", res.StatusCode, strings.TrimSpace(string(raw)))
+	}
+
+	var kr keyReadResponse
+	if err := json.Unmarshal(raw, &kr); err != nil {
+		return nil, fmt.Errorf("vaultsign: bad key response: %w", err)
+	}
+	entry, ok := kr.Data.Keys[strconv.Itoa(kr.Data.LatestVersion)]
+	if !ok || entry.PublicKey == "" {
+		return nil, fmt.Errorf("vaultsign: no public key for version %d", kr.Data.LatestVersion)
+	}
+	return parseEd25519PublicKey(entry.PublicKey)
+}
+
+// parseEd25519PublicKey accepts the public key in any of the forms Vault Transit
+// may return it: raw 32-byte base64, a PEM-wrapped SPKI, or a base64 DER SPKI.
+func parseEd25519PublicKey(s string) (ed25519.PublicKey, error) {
+	s = strings.TrimSpace(s)
+	if strings.Contains(s, "-----BEGIN") {
+		block, _ := pem.Decode([]byte(s))
+		if block == nil {
+			return nil, errors.New("vaultsign: invalid PEM public key")
+		}
+		return ed25519FromPKIX(block.Bytes)
+	}
+	dec, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("vaultsign: public key not base64 or PEM: %w", err)
+	}
+	if len(dec) == ed25519.PublicKeySize {
+		return ed25519.PublicKey(dec), nil
+	}
+	return ed25519FromPKIX(dec)
+}
+
+func ed25519FromPKIX(der []byte) (ed25519.PublicKey, error) {
+	pk, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
+		return nil, fmt.Errorf("vaultsign: parse public key: %w", err)
+	}
+	ed, ok := pk.(ed25519.PublicKey)
+	if !ok {
+		return nil, errors.New("vaultsign: transit key is not ed25519")
+	}
+	return ed, nil
 }
 
 // parseTransitSignature strips the "vault:v<n>:" prefix and base64-decodes the
