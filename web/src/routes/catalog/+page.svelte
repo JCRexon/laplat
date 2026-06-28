@@ -130,11 +130,11 @@
   .stack > * + * { margin-top: 2rem; }
 
   .form-error {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: var(--live-soft);
+    border: 1px solid var(--accent);
     border-radius: 8px;
     padding: 0.75rem 1rem;
-    color: #f87171;
+    color: var(--error);
     font-size: 0.875rem;
   }
 
@@ -142,6 +142,19 @@
     margin: 0 0 1rem;
     font-size: 1.4rem;
     font-weight: 700;
+    position: relative;
+    padding-bottom: 0.45rem;
+  }
+  /* Motif: red→gold flag marker under the section heading. */
+  .section-title::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 2.75rem;
+    height: 3px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent) 62%, var(--gold) 62%);
   }
   .section-title-sm {
     font-size: 1.1rem;
@@ -157,13 +170,16 @@
   .class-card {
     background: var(--card);
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: var(--radius);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: border-color 0.15s;
+    box-shadow: var(--shadow-1);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.15s;
   }
   .class-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2);
     border-color: var(--accent);
   }
 
@@ -283,15 +299,15 @@
     white-space: nowrap;
   }
   .status-live {
-    background: rgba(34, 197, 94, 0.15);
-    color: #4ade80;
+    background: var(--live-soft);
+    color: var(--accent);
   }
   .status-scheduled {
-    background: rgba(99, 102, 241, 0.12);
-    color: #818cf8;
+    background: var(--line);
+    color: var(--muted);
   }
   .status-ended {
-    background: rgba(139, 151, 168, 0.12);
+    background: var(--line);
     color: var(--muted);
   }
 

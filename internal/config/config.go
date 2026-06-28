@@ -24,6 +24,10 @@ const (
 	EnvAccessTTL  = "LAPLAT_ACCESS_TTL"
 	EnvRefreshTTL = "LAPLAT_REFRESH_TTL"
 
+	// How often the presence checkpoint worker folds a signed Merkle root over new
+	// presence events into the audit chain (ADR-010). 0 disables it.
+	EnvPresenceCheckpointInterval = "LAPLAT_PRESENCE_CHECKPOINT_INTERVAL"
+
 	// Vault Transit signing (optional). When configured, token + audit signing is
 	// delegated to Vault and the private key never enters this process; the env
 	// signing key becomes optional and the public key for EnvKid must instead be
@@ -103,23 +107,29 @@ const (
 
 // Defaults.
 const (
-	defaultHTTPAddr       = ":8080"
-	defaultAccessTTL      = 15 * time.Minute
-	defaultRefreshTTL     = 30 * 24 * time.Hour
-	defaultRateLimitRPS   = 20
-	defaultRateLimitBurst = 40
+	defaultHTTPAddr   = ":8080"
+	defaultAccessTTL  = 15 * time.Minute
+	defaultRefreshTTL = 30 * 24 * time.Hour
+
+	defaultPresenceCheckpointInterval = 30 * time.Second
+	defaultRateLimitRPS               = 20
+	defaultRateLimitBurst             = 40
 )
 
 // Config is the resolved, validated runtime configuration.
 type Config struct {
-	HTTPAddr       string
-	DBDSN          string
-	Kid            string
-	SigningKey     ed25519.PrivateKey // nil when Vault signing is configured
-	VerifyKeys     map[string]ed25519.PublicKey
-	Vault          *VaultConfig // nil unless Vault Transit signing is configured
-	AccessTTL      time.Duration
-	RefreshTTL     time.Duration
+	HTTPAddr   string
+	DBDSN      string
+	Kid        string
+	SigningKey ed25519.PrivateKey // nil when Vault signing is configured
+	VerifyKeys map[string]ed25519.PublicKey
+	Vault      *VaultConfig // nil unless Vault Transit signing is configured
+	AccessTTL  time.Duration
+	RefreshTTL time.Duration
+
+	// PresenceCheckpointInterval controls the presence checkpoint worker; 0 disables it.
+	PresenceCheckpointInterval time.Duration
+
 	RateLimitRPS   float64
 	RateLimitBurst int
 	OIDC           OIDCConfig
@@ -282,6 +292,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.RefreshTTL, err = parseDuration(getenv(EnvRefreshTTL), defaultRefreshTTL); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", EnvRefreshTTL, err)
+	}
+	if cfg.PresenceCheckpointInterval, err = parseDuration(getenv(EnvPresenceCheckpointInterval), defaultPresenceCheckpointInterval); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", EnvPresenceCheckpointInterval, err)
 	}
 
 	if cfg.RateLimitRPS, err = parsePositiveFloat(getenv(EnvRateLimitRPS), defaultRateLimitRPS); err != nil {

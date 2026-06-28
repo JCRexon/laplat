@@ -11,6 +11,7 @@
     "e2e": "bash e2e/run.sh"
   },
   "dependencies": {
+    "@fontsource/be-vietnam-pro": "^5.2.8",
     "livekit-client": "^2.6.1"
   },
   "devDependencies": {

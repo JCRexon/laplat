@@ -36,18 +36,18 @@ type AuditInput struct {
 // transaction, so the entry commits atomically with the action it records. The
 // caller must already hold an open tx; this takes the advisory lock, reads the
 // tail hash, signs, and inserts.
-func (s *Store) appendAuditTx(ctx context.Context, tx pgx.Tx, in AuditInput) error {
+func (s *Store) appendAuditTx(ctx context.Context, tx pgx.Tx, in AuditInput) (int64, error) {
 	if s.auditSigner == nil {
-		return ErrNoAuditSigner
+		return 0, ErrNoAuditSigner
 	}
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", auditLockKey); err != nil {
-		return err
+		return 0, err
 	}
 
 	prev := audit.GenesisHash()
 	err := tx.QueryRow(ctx, "SELECT entry_hash FROM audit_log ORDER BY seq DESC LIMIT 1").Scan(&prev)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return err
+		return 0, err
 	}
 
 	meta := in.Metadata
@@ -68,17 +68,19 @@ func (s *Store) appendAuditTx(ctx context.Context, tx pgx.Tx, in AuditInput) err
 	}
 	e.EntryHash = audit.Hash(e)
 	if e.Signature, err = s.auditSigner.Sign(e.EntryHash); err != nil {
-		return err
+		return 0, err
 	}
 
-	_, err = tx.Exec(ctx, `
+	var seq int64
+	err = tx.QueryRow(ctx, `
 		INSERT INTO audit_log
 			(occurred_at, actor_id, actor_role, action, target_type, target_id,
 			 metadata, prev_hash, entry_hash, signing_key_id, signature)
-		VALUES (to_timestamp($1), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		VALUES (to_timestamp($1), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING seq`,
 		e.OccurredAt, e.ActorID, e.ActorRole, string(e.Action), e.TargetType, e.TargetID,
-		e.Metadata, e.PrevHash, e.EntryHash, e.SigningKeyID, e.Signature)
-	return err
+		e.Metadata, e.PrevHash, e.EntryHash, e.SigningKeyID, e.Signature).Scan(&seq)
+	return seq, err
 }
 
 // SuspendUserAudited suspends an account, revokes all its sessions, and records
@@ -129,7 +131,7 @@ func (s *Store) inAuditTx(ctx context.Context, in AuditInput, mutate func(*sqlcd
 	if err := mutate(s.q.WithTx(tx)); err != nil {
 		return err
 	}
-	if err := s.appendAuditTx(ctx, tx, in); err != nil {
+	if _, err := s.appendAuditTx(ctx, tx, in); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

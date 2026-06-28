@@ -36,7 +36,7 @@
 </script>
 
 <div class="stack">
-  <h1>My account</h1>
+  <h1 class="section-title">My account</h1>
 
   <!-- ─── Connected login methods ─────────────────────────────────── -->
   <section class="card">
@@ -277,8 +277,8 @@
   .provider-chip {
     padding: 0.15rem 0.55rem;
     border-radius: 9999px;
-    background: rgba(99, 102, 241, 0.1);
-    color: #6366f1;
+    background: var(--line);
+    color: var(--text);
     font-size: 0.78rem;
     font-weight: 600;
     text-transform: capitalize;
@@ -343,13 +343,13 @@
   }
 
   .role-publisher {
-    background: rgba(37, 99, 235, 0.1);
-    color: #2563eb;
+    background: var(--gold-soft);
+    color: var(--gold-ink);
   }
 
   .role-subscriber {
-    background: rgba(107, 114, 128, 0.1);
-    color: #6b7280;
+    background: var(--line);
+    color: var(--muted);
   }
 
   .status-chip {
@@ -361,22 +361,22 @@
   }
 
   .s-live {
-    background: rgba(52, 211, 153, 0.18);
-    color: #059669;
+    background: var(--live-soft);
+    color: var(--accent);
   }
 
   .s-ended {
-    background: #f3f4f6;
-    color: #9ca3af;
+    background: var(--line);
+    color: var(--muted);
   }
 
   .s-scheduled {
-    background: rgba(99, 102, 241, 0.12);
-    color: #6366f1;
+    background: var(--line);
+    color: var(--muted);
   }
 
   .live-dot {
-    color: #059669;
+    color: var(--accent);
     font-weight: 600;
   }
 
@@ -421,13 +421,13 @@
   }
 
   .granted {
-    background: rgba(52, 211, 153, 0.18);
-    color: #059669;
+    background: var(--success-soft);
+    color: var(--success);
   }
 
   .withdrawn {
-    background: rgba(239, 68, 68, 0.1);
-    color: #dc2626;
+    background: var(--live-soft);
+    color: var(--error);
   }
 
   .consent-purpose {
@@ -470,7 +470,7 @@
     display: inline-block;
     padding: 0.1rem 0.55rem;
     border-radius: 9999px;
-    background: rgba(218, 37, 29, 0.1);
+    background: var(--live-soft);
     color: var(--accent);
     font-size: 0.75rem;
     font-weight: 600;
@@ -481,23 +481,29 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Data export CTA */
+  /* Data export CTA — tactile, matches the global button idiom */
   .cta-btn {
     display: inline-block;
     padding: 0.55rem 1.1rem;
     background: var(--accent);
     color: #fff;
-    border-radius: 8px;
+    border-radius: 10px;
     font-size: 0.9rem;
-    font-weight: 600;
+    font-weight: 700;
     text-decoration: none;
+    box-shadow: 0 3px 0 var(--accent-press);
+    transition: transform 0.05s ease, box-shadow 0.05s ease, filter 0.15s;
   }
   .cta-btn:hover {
-    opacity: 0.85;
+    filter: brightness(1.04);
+  }
+  .cta-btn:active {
+    transform: translateY(2px);
+    box-shadow: 0 1px 0 var(--accent-press);
   }
 
   a {
-    color: var(--accent, #2563eb);
+    color: var(--accent);
     text-decoration: underline;
   }
 </style>
