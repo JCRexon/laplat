@@ -54,9 +54,12 @@ Each privileged action writes one row:
 
 The chain needs a total order, so an append takes a transaction-scoped advisory
 lock before reading the tail hash and inserting. Privileged actions
-(moderation, identity changes) are low-volume, so serialising them is free. A
-future high-volume stream (session joins) would shard the chain per subject
-rather than share one global lock — noted, not built.
+(moderation, identity changes) are low-volume, so serialising them is free. The
+one high-volume stream — session join/leave **presence** — deliberately does
+**not** take this lock per event: it writes to an append-only `presence_events`
+table and is folded into this chain periodically as a single Vault-signed Merkle
+checkpoint (ADR-010), so the global lock and the per-append signature are paid
+once per checkpoint, not once per join.
 
 ## The seam
 
@@ -85,13 +88,14 @@ store.SuspendUserAudited(ctx, targetID, audit.Entry{
 | `moderation.Reinstate` | ✅ | `user.reinstated` |
 | `moderation.SetInstructor` | ✅ | `instructor.granted` / `instructor.revoked` |
 | `auth.BecomeInstructor` | ✅ | `instructor.self_granted` (actor = self) |
+| session join / leave (presence) | ✅ | `presence.checkpoint` — a periodic Merkle checkpoint anchors `presence_events` into this chain (ADR-010), not one entry per join |
 | admin eKYC bootstrap (`adminctl`) | ⛔ planned | operator CLI, not a runtime request |
 | eKYC verify / tier transition (runtime) | ⛔ planned | rides with the eKYC provider work |
-| session join / leave | ⛔ planned | high-volume — needs the sharded-chain variant |
 
 ## Status
 
 - **Built:** the `audit_log` (immutable, hash-chained, signed) + `VerifyAuditChain`,
-  wired into all live moderation actions and instructor self-apply.
-- **Planned:** runtime eKYC/tier-transition audit (with the eKYC provider), the
-  high-volume sharded chain for session events.
+  wired into all live moderation actions and instructor self-apply; **presence
+  auditing** — append-only `presence_events` folded into the chain via periodic
+  Vault-signed Merkle checkpoints, with an inclusion-proof verifier (ADR-010).
+- **Planned:** runtime eKYC/tier-transition audit (with the eKYC provider).

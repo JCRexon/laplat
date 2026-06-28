@@ -116,16 +116,16 @@ Claim helpers (`MeetsAdultDeclaration`, `MeetsPhoneVerification`,
   ([`internal/consent`](internal/consent) — append-only, signed, with a
   `RecordingAllowed` gate and a withdrawal that stops recording, D-2), and the
   recording control plane ([`internal/recording`](internal/recording) — starts
-  LiveKit egress only behind that gate, host-triggered, stop-on-withdrawal)), and
+  LiveKit egress only behind that gate, host-triggered, stop-on-withdrawal), and
   the **entitlements gate** ([`internal/entitlement`](internal/entitlement) — a
   durable per-account ownership record; `classes.price_cents` marks paid content;
   enrollment and recording playback consult it; free content is unchanged; an
   entitlement survives a later downgrade). Grants come from a moderator today
   (comp/support); a payment provider will drive them on a completed charge.
+- **Built (media infra):** a LiveKit + egress server in the stack so recordings
+  capture end-to-end, webhook-driven egress status reconciliation, and recording
+  playback (nginx `secure_link`-signed URLs).
 - **In review:** Zalo (OAuth) sign-in.
-- **Needs media infra (next):** running a LiveKit + egress server so recordings
-  capture end-to-end, webhook-driven egress status reconciliation, and
-  recording playback/availability.
 - **Planned:** the payment provider (Stripe/VNPay) — the only remaining piece of
   payments now that the entitlements model + gate are built; on a completed charge
   it calls `entitlement.Service.Grant`. Also class capacity limits (a max on the

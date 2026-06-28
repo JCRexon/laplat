@@ -84,4 +84,7 @@ under `/opt/pw-browsers`); adjust those paths to run it on a different machine.
 - **eKYC**: `verify/begin` is surfaced, but the provider isn't wired in local
   dev, so the `verified` tier isn't reachable end-to-end (operator grant via
   `adminctl` still works).
-- **Instructor authoring** and **payments**: out of this slice.
+- **Payments / checkout**: no purchase UI. The entitlements backend + gate exist
+  (paid classes return 402 on enroll/playback; a moderator can grant access via
+  `/v1/entitlements`), but there's no learner-facing checkout until a payment
+  provider is wired.

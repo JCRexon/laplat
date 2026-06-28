@@ -458,6 +458,13 @@ expiry shortening + playback-audit entry can ship independently. **Revisit when.
 Recordings become entitlement-gated (prioritise then). **Confidence/review.**
 Design settled; Pending build; security review of the serving authz before prod.
 
+**Update (2026-06-28, ADR-013).** The trigger partially fired: entitlement gating
+now exists at the **application layer** (the `playback` handler returns 402 for a
+paid class without ownership). This does **not** discharge ADR-011 — the
+`secure_link` URL, once issued, is still a leak-prone bearer token. The
+identity-bound serving authz (nginx `auth_request`) and the `recording.played`
+audit entry remain Pending; prioritise now that paid recordings are reachable.
+
 ---
 
 ## ADR-012 — Storage tiers: S3-compatible object store on a separate host; DB for text; no block; file deferred
@@ -532,3 +539,56 @@ network/credential isolation before prod.**
 **Open sub-decision.** Self-hosted (MinIO / Ceph) vs cloud S3 — a trade between
 **data residency + control** (Decree 147/PDPL favours in-country self-host, per
 ADR-005's reasoning) and **operational burden**. Not settled here.
+
+---
+
+## ADR-013 — Entitlements: durable ownership gate, built ahead of the payment provider
+**Date:** 2026-06-28 · **Status:** Accepted (model + gate) / Pending (payment provider) · **Links:** ACCESS-MODEL.md, ADR-008, ADR-011, PR #52
+
+**Context.** Paid content (paid classes, and later paid recordings) needs an
+access gate, but the payment provider (Stripe/VNPay) is blocked on a merchant
+account. What can be built now, and how should "owns this" be modelled, given
+ACCESS-MODEL's rule that owned content is **entitlement-gated, not tier-gated**?
+
+**Decision.** Build the non-provider half now and leave a one-call seam for the
+provider.
+1. **A durable `entitlements` table** — one row = an account owns a resource.
+   Operational state, not a ledger: mutable (`revoked_at` for refund/chargeback),
+   a partial-unique index for one *active* row per `(subject, resource)`, an
+   optional `expires_at`. An entitlement is **never** revoked by an identity
+   downgrade — you keep what you bought.
+2. **`classes.price_cents` marks paid content** (0 = free floor). Free classes
+   stay on the tier ladder and need no entitlement, so wiring the gate in changes
+   nothing for existing content. The **class is the sellable unit**; a recording
+   inherits access from its session's class (a direct/classless session is free).
+3. **The gate lives in the service/application layer** (`entitlement.Service`
+   `EnsureClassAccess` / `EnsureRecordingAccess`), consulted by class enrollment
+   and recording playback as *optional* dependencies (nil = pre-payments
+   behaviour). Paid-without-ownership → HTTP 402.
+4. **Grants come from a moderator today** (`POST /v1/entitlements`, comp/support)
+   so the gate is exercisable end-to-end; on a completed charge a provider will
+   call the same `Service.Grant(subject, "class", id, "purchase", cents, …)`.
+
+**Reasoning.** Separating the buildable model from the blocked provider closes a
+half-built loop now and de-risks payments to a last-mile integration. Gating on
+ownership (a row keyed to an account) rather than tier is what ACCESS-MODEL
+requires and is what makes ownership survive a downgrade. Pricing on `classes`
+(read via a one-column query) avoids regenerating the sqlc layer for `GetClass`.
+
+**Trade-offs.** (a) The app-layer gate is **not** the leak-proof serving bind —
+a `secure_link` playback URL, once issued, is still a bearer token; ADR-011's
+identity-bound serving authz is still needed (see its 2026-06-28 update). (b)
+Pricing is modelled per-class only — per-recording or subscription pricing is a
+later schema change. (c) Entitlements are operational state, so the **payment**
+that creates one is what should be audited; an audit entry on grant/revoke is
+deferred.
+
+**Alternatives.** A `price`/`is_free` flag with no ownership table (can't express
+"who owns what"); putting entitlements on the audit ledger (rejected per ADR-011 —
+the log is evidentiary, not an authorization source).
+
+**Revisit when.** The payment provider is wired (build the charge→Grant callback
+and audit it); per-recording or subscription pricing is needed; or ADR-011's
+serving-layer authz lands (the app-layer gate then becomes defence-in-depth).
+**Confidence/review.** High for the model + gate; the money path needs review
+when the provider is chosen.
