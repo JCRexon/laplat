@@ -50,6 +50,24 @@ untrusted input — e.g. `FuzzSubjectToken` asserts no accepted value can carry 
 NATS subject metacharacter. Add a fuzz target whenever a new parser/validator
 touches untrusted bytes (e.g. signalling/SDP parsing — C-7 — when it lands).
 
+## Manual smoke tests
+Some paths need infrastructure that can't run in a plain dev container. The
+recording capture path is the main one: real egress needs LiveKit + headless
+Chrome compositing a live participant's media. The *control plane* around it
+(webhook ingest, signature verification, the recording state machine) is still
+verifiable without any of that:
+
+- `scripts/egress-smoke.sh` forges a correctly-signed LiveKit webhook (and a
+  deliberately bad one) and fires the egress lifecycle at a running authd:
+  - default: asserts a valid webhook is accepted (200) and a forged one rejected
+    (401) — ingest + signature gate, no DB needed;
+  - `--with-db`: seeds a session + recording row and drives it
+    `starting → active → completed` via the webhooks, reading the row back.
+
+  To exercise the *real* media pipeline (occasional, local-only — too
+  resource-heavy for CI), publish a synthetic track headlessly with the LiveKit
+  CLI (`lk room join --publish-demo <room>`), then start a room-composite egress.
+
 ## Quality gate
 `make check` = `lint` (gofmt + `go vet`) + `test` + `test-security`. Run before
 pushing. `make cover` reports coverage (tracked, not enforced); the
