@@ -6,3 +6,8 @@ ws_url: ws://livekit:7880
 health_port: 8081
 log_level: warn
 local_directory: /out
+# Egress talks to the LiveKit server over the psrpc Redis bus (same instance the
+# server uses). Without this section the redis options unmarshal to nil and the
+# service panics in NewRedisMessageBus on startup.
+redis:
+  address: redis:6379

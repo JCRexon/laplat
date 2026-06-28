@@ -112,6 +112,8 @@ services:
     depends_on:
       livekit:
         condition: service_started
+      redis:
+        condition: service_healthy
 
   authd:
     build: .
