@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jcrexon/laplat/internal/entitlement"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
 	"github.com/jcrexon/laplat/pkg/token"
@@ -156,6 +157,8 @@ func writeServiceErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrForbidden):
 		writeErr(w, http.StatusForbidden, "insufficient tier or capability")
+	case errors.Is(err, entitlement.ErrPaymentRequired):
+		writeErr(w, http.StatusPaymentRequired, "this class requires purchase")
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrClassNotFound):
 		writeErr(w, http.StatusNotFound, "class not found")
 	case errors.Is(err, ErrBadTitle), errors.Is(err, ErrBadStatus):
