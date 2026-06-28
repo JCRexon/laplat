@@ -98,6 +98,9 @@ downgrade takes effect immediately rather than waiting out a token's TTL):
 | Browse a class's schedule | `declared` | `ListForClass`/`Detail` — [`internal/session/session.go`](internal/session/session.go) |
 | Create / join a live session | `phone_verified` | `MeetsPhoneVerification()` — [`internal/session/session.go`](internal/session/session.go) |
 | Create a class | `phone_verified` + `can_instruct` | `Create` — [`internal/class/class.go`](internal/class/class.go) |
+| Enroll in a class | `declared` (+ entitlement if paid) | `Enroll` — [`internal/class/enrollment.go`](internal/class/enrollment.go) |
+| Play a recording | none if free; entitlement if paid | `playback` — [`internal/recording/http.go`](internal/recording/http.go) |
+| Grant / revoke an entitlement | `platform_moderator` (until a payment provider drives it) | [`internal/entitlement`](internal/entitlement) |
 | Become an instructor | `verified` (eKYC) | `POST /v1/instructor/apply` — [`internal/auth`](internal/auth) |
 | Suspend / reinstate / set-instructor | `platform_moderator` | [`internal/moderation`](internal/moderation) |
 
@@ -113,11 +116,17 @@ Claim helpers (`MeetsAdultDeclaration`, `MeetsPhoneVerification`,
   ([`internal/consent`](internal/consent) — append-only, signed, with a
   `RecordingAllowed` gate and a withdrawal that stops recording, D-2), and the
   recording control plane ([`internal/recording`](internal/recording) — starts
-  LiveKit egress only behind that gate, host-triggered, stop-on-withdrawal).
+  LiveKit egress only behind that gate, host-triggered, stop-on-withdrawal)), and
+  the **entitlements gate** ([`internal/entitlement`](internal/entitlement) — a
+  durable per-account ownership record; `classes.price_cents` marks paid content;
+  enrollment and recording playback consult it; free content is unchanged; an
+  entitlement survives a later downgrade). Grants come from a moderator today
+  (comp/support); a payment provider will drive them on a completed charge.
 - **In review:** Zalo (OAuth) sign-in.
 - **Needs media infra (next):** running a LiveKit + egress server so recordings
   capture end-to-end, webhook-driven egress status reconciliation, and
   recording playback/availability.
-- **Planned:** payments / entitlements (the gate for paid recordings), class
-  enrollment + capacity (a per-class roster, the *other* sense of
-  "members-only" — membership of a class, orthogonal to the assurance tier).
+- **Planned:** the payment provider (Stripe/VNPay) — the only remaining piece of
+  payments now that the entitlements model + gate are built; on a completed charge
+  it calls `entitlement.Service.Grant`. Also class capacity limits (a max on the
+  per-class roster).

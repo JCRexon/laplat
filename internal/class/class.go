@@ -41,18 +41,38 @@ type Repo interface {
 	EnrolledClassIDs(ctx context.Context, userID string) ([]string, error)
 }
 
+// EntitlementGate decides whether a caller may access a (possibly paid) class.
+// *entitlement.Service satisfies it. Optional: when nil, all classes are treated
+// as free (the pre-payments behaviour).
+type EntitlementGate interface {
+	EnsureClassAccess(ctx context.Context, subjectID, classID string) error
+}
+
 // Service orchestrates class management.
 type Service struct {
-	repo  Repo
-	NewID func() string
+	repo         Repo
+	entitlements EntitlementGate // nil = no paid gating
+	NewID        func() string
+}
+
+// Option configures a Service.
+type Option func(*Service)
+
+// WithEntitlements wires the entitlement gate so paid classes require ownership.
+func WithEntitlements(g EntitlementGate) Option {
+	return func(s *Service) { s.entitlements = g }
 }
 
 // NewService wires the repo.
-func NewService(repo Repo) (*Service, error) {
+func NewService(repo Repo, opts ...Option) (*Service, error) {
 	if repo == nil {
 		return nil, errors.New("class: repo is required")
 	}
-	return &Service{repo: repo, NewID: newID}, nil
+	s := &Service{repo: repo, NewID: newID}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
 // Create makes a new draft class owned by the caller. Requires can_instruct and

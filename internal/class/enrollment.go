@@ -15,9 +15,9 @@ var (
 )
 
 // Enroll adds the caller to the class roster. Requires at least the declared
-// tier (adult self-attestation), which is the minimum for general features.
-// Without payments, enrollment is free; the entitlement check will be added
-// once the payment system is built.
+// tier (adult self-attestation), which is the minimum for general features. A
+// paid class additionally requires an active entitlement (you bought the course);
+// free classes enroll without one.
 func (s *Service) Enroll(ctx context.Context, claims *contracts.AccessTokenClaims, classID string) error {
 	if !claims.MeetsAdultDeclaration() {
 		return ErrForbidden
@@ -29,6 +29,12 @@ func (s *Service) Enroll(ctx context.Context, claims *contracts.AccessTokenClaim
 	}
 	if c.Status != "published" {
 		return ErrClassNotFound // treat non-published as not found to the caller
+	}
+	// Ownership gate: free classes pass; paid classes need an entitlement.
+	if s.entitlements != nil {
+		if err := s.entitlements.EnsureClassAccess(ctx, claims.Subject, classID); err != nil {
+			return err
+		}
 	}
 	return s.repo.EnrollClass(ctx, classID, claims.Subject)
 }

@@ -4,7 +4,7 @@ A running snapshot of where the project is and what's next, so a fresh session
 (or a returning human) can get up to speed without re-reading the whole chat
 history. Update the "Current state" and "Next tasks" sections as work lands.
 
-_Last updated: 2026-06-26 — after social sign-in, admin/class/session UI, and nginx secure_link (PRs #36–#37)._
+_Last updated: 2026-06-28 — after presence-auditing Merkle checkpoints (PR #51) and the entitlements scaffolding (this branch)._
 
 ## What laplat is
 
@@ -161,18 +161,20 @@ unblocked list — these close loops on features already half-built.
    implemented and now returns secure_link-signed URLs — this is purely a missing
    UI surface.
 
-3. **Entitlements scaffolding** (the non-provider half of payments). The data
-   model and gate can land before any payment provider is wired: add the
-   `entitlements` table + store methods, and replace the free-only stub in the
-   playback/enrollment path with a real entitlement check (the enrollment
-   service already has a stub comment marking where). Only the final
-   purchase/charge step needs an external provider (see Blocked #1).
+3. ~~**Entitlements scaffolding** (the non-provider half of payments).~~ **Done**
+   ([`internal/entitlement`](internal/entitlement), migration 00020): durable
+   per-account `entitlements` table; `classes.price_cents` marks paid content; the
+   gate is wired into class enrollment and recording playback (free content
+   unchanged); a moderator can grant/revoke today via `POST/DELETE
+   /v1/entitlements` and read their library at `GET /v1/entitlements/me`. Only the
+   purchase/charge step remains (Blocked #1) — it calls `entitlement.Service.Grant`.
 
 ### Blocked — needs an external provider, credential, or approval
 
 1. **Payments**. The purchase/charge flow needs a Stripe or VNPay merchant
-   account + API credentials. Build the entitlements model first (Unblocked #3);
-   the provider integration is the last mile, not a prerequisite.
+   account + API credentials. The entitlements model + gate are now built
+   (Unblocked #3, done), so this is purely the last mile: on a completed charge,
+   call `entitlement.Service.Grant(subject, "class", classID, "purchase", cents, …)`.
 
 2. **Zalo OIDC**. Waiting on Zalo's provider/app review. The Go backend already
    has a `providers["VN"]` slot and the SvelteKit proxy routes accept any

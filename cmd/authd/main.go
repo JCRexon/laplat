@@ -27,6 +27,7 @@ import (
 	"github.com/jcrexon/laplat/internal/consent"
 	"github.com/jcrexon/laplat/internal/ekyc"
 	"github.com/jcrexon/laplat/internal/emailsend"
+	"github.com/jcrexon/laplat/internal/entitlement"
 	"github.com/jcrexon/laplat/internal/httpx"
 	"github.com/jcrexon/laplat/internal/identity"
 	"github.com/jcrexon/laplat/internal/livekit"
@@ -209,7 +210,17 @@ func run(log *slog.Logger) error {
 	apiMux := http.NewServeMux()
 	apiMux.Handle("/", handler)
 
-	classSvc, err := class.NewService(st)
+	// Entitlements gate paid content (ACCESS-MODEL): the class enrollment path and
+	// recording playback consult it; free content passes through unchanged.
+	entitlementSvc, err := entitlement.NewService(st)
+	if err != nil {
+		return err
+	}
+	entitlementHandler := entitlement.NewHandler(entitlementSvc, validator)
+	apiMux.Handle("/v1/entitlements", entitlementHandler)
+	apiMux.Handle("/v1/entitlements/", entitlementHandler)
+
+	classSvc, err := class.NewService(st, class.WithEntitlements(entitlementSvc))
 	if err != nil {
 		return err
 	}
@@ -251,7 +262,7 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		recHandler := recording.NewHandler(recordingSvc, validator, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, cfg.LiveKit.RecordingsBaseURL, cfg.LiveKit.FilePrefix, cfg.LiveKit.RecordingsSecret, log)
+		recHandler := recording.NewHandler(recordingSvc, validator, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, cfg.LiveKit.RecordingsBaseURL, cfg.LiveKit.FilePrefix, cfg.LiveKit.RecordingsSecret, log, recording.WithEntitlements(entitlementSvc))
 		apiMux.Handle("/v1/recordings/", recHandler)
 		apiMux.Handle("/v1/webhooks/", recHandler)
 		// D-2: a consent withdrawal must stop an in-flight recording. Reconcile

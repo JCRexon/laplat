@@ -1,6 +1,7 @@
 package recording
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jcrexon/laplat/internal/entitlement"
 	"github.com/jcrexon/laplat/internal/livekit"
 	"github.com/jcrexon/laplat/internal/store"
 	"github.com/jcrexon/laplat/pkg/contracts"
@@ -22,13 +24,29 @@ import (
 type Handler struct {
 	svc              *Service
 	validator        *token.Validator
-	apiKey           string // LiveKit API key for webhook issuer check
-	apiSecret        string // LiveKit API secret for webhook verification
-	recordingsBase   string // public base URL for playback links (optional)
-	filePrefix       string // file prefix to strip when building playback URLs
-	recordingsSecret string // HMAC-MD5 key for nginx secure_link signing (optional)
+	apiKey           string          // LiveKit API key for webhook issuer check
+	apiSecret        string          // LiveKit API secret for webhook verification
+	recordingsBase   string          // public base URL for playback links (optional)
+	filePrefix       string          // file prefix to strip when building playback URLs
+	recordingsSecret string          // HMAC-MD5 key for nginx secure_link signing (optional)
+	entitlements     EntitlementGate // nil = free floor (any authed user)
 	log              *slog.Logger
 	mux              *http.ServeMux
+}
+
+// EntitlementGate gates recording playback by the entitlement of the session's
+// class. *entitlement.Service satisfies it. Optional: when nil, playback stays on
+// the free floor (any authenticated user, the pre-payments behaviour).
+type EntitlementGate interface {
+	EnsureRecordingAccess(ctx context.Context, subjectID, sessionID string) error
+}
+
+// Option configures a Handler.
+type Option func(*Handler)
+
+// WithEntitlements gates playback so paid-class recordings require ownership.
+func WithEntitlements(g EntitlementGate) Option {
+	return func(h *Handler) { h.entitlements = g }
 }
 
 // NewHandler wires the service, validator, and LiveKit credentials, then
@@ -39,12 +57,15 @@ type Handler struct {
 // Both are optional: when recordingsBase is empty no playbackUrl is produced.
 // recordingsSecret is the HMAC-MD5 key shared with nginx's secure_link module;
 // when non-empty, playbackUrls carry a signed expiry (see buildPlaybackURL).
-func NewHandler(svc *Service, validator *token.Validator, apiKey, apiSecret, recordingsBase, filePrefix, recordingsSecret string, log *slog.Logger) *Handler {
+func NewHandler(svc *Service, validator *token.Validator, apiKey, apiSecret, recordingsBase, filePrefix, recordingsSecret string, log *slog.Logger, opts ...Option) *Handler {
 	h := &Handler{
 		svc: svc, validator: validator, apiKey: apiKey, apiSecret: apiSecret,
 		recordingsBase: recordingsBase, filePrefix: filePrefix,
 		recordingsSecret: recordingsSecret, log: log,
 		mux: http.NewServeMux(),
+	}
+	for _, opt := range opts {
+		opt(h)
 	}
 	// Host-only recording controls.
 	h.mux.Handle("POST /v1/recordings/sessions/{sessionID}", h.auth(h.start))
@@ -108,10 +129,27 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request, claims *contracts
 	writeJSON(w, http.StatusOK, map[string]any{"recordings": out})
 }
 
-// playback returns completed recordings for a session. Any authenticated user
-// may call this (free-recording floor per ACCESS-MODEL.md).
-func (h *Handler) playback(w http.ResponseWriter, r *http.Request, _ *contracts.AccessTokenClaims) {
-	recs, err := h.svc.ListCompleted(r.Context(), r.PathValue("sessionID"))
+// playback returns completed recordings for a session. Free-class and direct
+// sessions are on the free floor (any authenticated user); paid-class recordings
+// require an active entitlement when the gate is wired.
+func (h *Handler) playback(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	sessionID := r.PathValue("sessionID")
+	if h.entitlements != nil {
+		switch err := h.entitlements.EnsureRecordingAccess(r.Context(), claims.Subject, sessionID); {
+		case err == nil:
+			// access granted
+		case errors.Is(err, entitlement.ErrPaymentRequired):
+			writeErr(w, http.StatusPaymentRequired, "this recording requires purchase")
+			return
+		case errors.Is(err, entitlement.ErrSessionNotFound):
+			writeErr(w, http.StatusNotFound, "session not found")
+			return
+		default:
+			writeErr(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+	}
+	recs, err := h.svc.ListCompleted(r.Context(), sessionID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
