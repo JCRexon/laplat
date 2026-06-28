@@ -14,7 +14,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 
 	"github.com/jcrexon/laplat/internal/audit"
@@ -145,8 +144,8 @@ func (s *Service) Verify(ctx context.Context, seq int64) error {
 	if err := s.verifier.VerifyEntry(entry); err != nil {
 		return err
 	}
-	var meta store.PresenceCheckpointMeta
-	if err := json.Unmarshal(entry.Metadata, &meta); err != nil {
+	meta, err := store.ParsePresenceCheckpointTarget(entry.TargetID)
+	if err != nil {
 		return err
 	}
 	if !bytes.Equal(meta.MerkleRoot, cp.MerkleRoot) {

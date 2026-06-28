@@ -6,8 +6,11 @@
 --
 -- The cryptographic authority is the signed audit_log entry, not this table:
 -- merkle_root is duplicated here for fast lookup, and a verifier cross-checks it
--- against the signed entry's metadata. The table is therefore a rebuildable
--- index (derivable from audit_log + presence_events), not a ledger.
+-- against the commitment encoded in the signed entry's target_id (a text column;
+-- the root + range live there rather than in the jsonb metadata, which Postgres
+-- normalises and so would not round-trip the exact signed bytes). The table is
+-- therefore a rebuildable index (derivable from audit_log + presence_events),
+-- not a ledger.
 CREATE TABLE presence_checkpoints (
     id          text NOT NULL PRIMARY KEY,        -- opaque ULID-shaped id
     from_seq    bigint NOT NULL,                  -- first presence_events.seq covered (inclusive)

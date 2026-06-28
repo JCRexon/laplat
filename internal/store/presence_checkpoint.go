@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,14 +27,52 @@ type PresenceCheckpoint struct {
 	CreatedAt  time.Time
 }
 
-// PresenceCheckpointMeta is the JSON carried in the checkpoint's audit_log entry
-// metadata — the signed commitment a verifier cross-checks against the index row.
-// (MerkleRoot marshals to base64 as a []byte field.)
+// PresenceCheckpointMeta is the signed commitment carried in the checkpoint's
+// audit_log entry — the Merkle root and the range it covers — that a verifier
+// cross-checks against the index row.
+//
+// It is encoded into the entry's target_id (a TEXT column) rather than the
+// metadata (jsonb): Postgres normalises jsonb on storage (key order, whitespace),
+// so a multi-key JSON object would not round-trip the exact bytes the audit
+// signature covers, and verification would spuriously fail. A text target_id
+// round-trips byte-for-byte. Wire form: "<base64(root)>:<fromSeq>:<toSeq>:<count>".
 type PresenceCheckpointMeta struct {
-	MerkleRoot []byte `json:"merkleRoot"`
-	FromSeq    int64  `json:"fromSeq"`
-	ToSeq      int64  `json:"toSeq"`
-	Count      int    `json:"count"`
+	MerkleRoot []byte
+	FromSeq    int64
+	ToSeq      int64
+	Count      int
+}
+
+// EncodeTarget renders the commitment into the audit entry's target_id.
+func (m PresenceCheckpointMeta) EncodeTarget() string {
+	return fmt.Sprintf("%s:%d:%d:%d",
+		base64.StdEncoding.EncodeToString(m.MerkleRoot), m.FromSeq, m.ToSeq, m.Count)
+}
+
+// ParsePresenceCheckpointTarget decodes a commitment from an audit entry's
+// target_id (the inverse of EncodeTarget).
+func ParsePresenceCheckpointTarget(s string) (PresenceCheckpointMeta, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 4 {
+		return PresenceCheckpointMeta{}, fmt.Errorf("store: malformed presence checkpoint target %q", s)
+	}
+	root, err := base64.StdEncoding.DecodeString(parts[0])
+	if err != nil {
+		return PresenceCheckpointMeta{}, fmt.Errorf("store: bad checkpoint root: %w", err)
+	}
+	fromSeq, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return PresenceCheckpointMeta{}, fmt.Errorf("store: bad checkpoint fromSeq: %w", err)
+	}
+	toSeq, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return PresenceCheckpointMeta{}, fmt.Errorf("store: bad checkpoint toSeq: %w", err)
+	}
+	count, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return PresenceCheckpointMeta{}, fmt.Errorf("store: bad checkpoint count: %w", err)
+	}
+	return PresenceCheckpointMeta{MerkleRoot: root, FromSeq: fromSeq, ToSeq: toSeq, Count: count}, nil
 }
 
 // LatestPresenceCheckpointSeq returns the highest presence seq already covered by
@@ -94,10 +134,9 @@ func (s *Store) WritePresenceCheckpoint(ctx context.Context, id string, root []b
 	if s.auditSigner == nil {
 		return ErrNoAuditSigner
 	}
-	meta, err := json.Marshal(PresenceCheckpointMeta{MerkleRoot: root, FromSeq: fromSeq, ToSeq: toSeq, Count: count})
-	if err != nil {
-		return err
-	}
+	// The signed commitment (root + covered range) goes in the TEXT target_id so it
+	// round-trips byte-for-byte; metadata is left empty (defaults to "{}").
+	target := PresenceCheckpointMeta{MerkleRoot: root, FromSeq: fromSeq, ToSeq: toSeq, Count: count}.EncodeTarget()
 
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -109,8 +148,7 @@ func (s *Store) WritePresenceCheckpoint(ctx context.Context, id string, root []b
 		ActorRole:  contracts.AuditRoleSystem,
 		Action:     contracts.ActionPresenceCheckpoint,
 		TargetType: "presence",
-		TargetID:   fmt.Sprintf("%d-%d", fromSeq, toSeq),
-		Metadata:   meta,
+		TargetID:   target,
 	})
 	if err != nil {
 		return err
