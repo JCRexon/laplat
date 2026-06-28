@@ -263,7 +263,7 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		recHandler := recording.NewHandler(recordingSvc, validator, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, cfg.LiveKit.RecordingsBaseURL, cfg.LiveKit.FilePrefix, cfg.LiveKit.RecordingsSecret, log, recording.WithEntitlements(entitlementSvc))
+		recHandler := recording.NewHandler(recordingSvc, validator, cfg.LiveKit.APIKey, cfg.LiveKit.APISecret, cfg.LiveKit.RecordingsBaseURL, cfg.LiveKit.FilePrefix, cfg.LiveKit.RecordingsSecret, log, recording.WithEntitlements(entitlementSvc), recording.WithPlaybackTTL(cfg.LiveKit.PlaybackTTL))
 		apiMux.Handle("/v1/recordings/", recHandler)
 		apiMux.Handle("/v1/webhooks/", recHandler)
 		// D-2: a consent withdrawal must stop an in-flight recording. Reconcile
