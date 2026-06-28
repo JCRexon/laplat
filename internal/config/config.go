@@ -90,8 +90,12 @@ const (
 	// module. When set, playbackUrls include a signed expiry token so nginx
 	// can verify them without calling authd on every range request. Optional:
 	// when unset the URLs are unsigned (dev-only behaviour).
-	EnvRecordingsSecret     = "LAPLAT_RECORDINGS_SECRET"
+	EnvRecordingsSecret = "LAPLAT_RECORDINGS_SECRET"
+	// EnvPlaybackTTL is how long a minted playback URL stays valid — the leak
+	// window for the bearer-style signed URL (ADR-011). Kept short; default 5m.
+	EnvPlaybackTTL          = "LAPLAT_PLAYBACK_TTL"
 	defaultEgressFilePrefix = "/out/"
+	defaultPlaybackTTL      = 5 * time.Minute
 
 	// DEV ONLY. When truthy, email/phone OTP login falls back to a console
 	// sender that LOGS the code (no SMTP/SMS vendor needed) — for local
@@ -174,6 +178,10 @@ type LiveKitConfig struct {
 	// When set, playbackUrls carry a signed expiry so nginx can authenticate
 	// downloads without a subrequest to authd. Optional (dev: leave unset).
 	RecordingsSecret string
+	// PlaybackTTL is the validity window of a minted playback URL (ADR-011); 0
+	// means the package default (5m). Short by design — the URL is a bearer token
+	// until the auth_request identity binding lands.
+	PlaybackTTL time.Duration
 }
 
 // SMTPConfig is the (optional) email-OTP transport configuration.
@@ -394,11 +402,16 @@ func parseLiveKit(getenv func(string) string) (*LiveKitConfig, error) {
 	}
 	recordingsBase := strings.TrimRight(strings.TrimSpace(getenv(EnvRecordingsBaseURL)), "/")
 	recordingsSecret := strings.TrimSpace(getenv(EnvRecordingsSecret))
+	playbackTTL, err := parseDuration(getenv(EnvPlaybackTTL), defaultPlaybackTTL)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", EnvPlaybackTTL, err)
+	}
 	return &LiveKitConfig{
 		APIKey: key, APISecret: secret, URL: url,
 		HTTPURL: httpURL, FilePrefix: filePrefix,
 		RecordingsBaseURL: recordingsBase,
 		RecordingsSecret:  recordingsSecret,
+		PlaybackTTL:       playbackTTL,
 	}, nil
 }
 

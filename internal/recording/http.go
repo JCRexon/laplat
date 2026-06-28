@@ -29,10 +29,16 @@ type Handler struct {
 	recordingsBase   string          // public base URL for playback links (optional)
 	filePrefix       string          // file prefix to strip when building playback URLs
 	recordingsSecret string          // HMAC-MD5 key for nginx secure_link signing (optional)
+	playbackTTL      time.Duration   // validity window of a minted playback URL (ADR-011)
 	entitlements     EntitlementGate // nil = free floor (any authed user)
 	log              *slog.Logger
 	mux              *http.ServeMux
 }
+
+// defaultPlaybackTTL bounds how long a signed playback URL stays valid — the
+// leak window of the bearer-style URL until the auth_request identity binding
+// lands (ADR-011). Kept short.
+const defaultPlaybackTTL = 5 * time.Minute
 
 // EntitlementGate gates recording playback by the entitlement of the session's
 // class. *entitlement.Service satisfies it. Optional: when nil, playback stays on
@@ -49,6 +55,16 @@ func WithEntitlements(g EntitlementGate) Option {
 	return func(h *Handler) { h.entitlements = g }
 }
 
+// WithPlaybackTTL sets the validity window of minted playback URLs. A zero or
+// negative value leaves the default (defaultPlaybackTTL).
+func WithPlaybackTTL(d time.Duration) Option {
+	return func(h *Handler) {
+		if d > 0 {
+			h.playbackTTL = d
+		}
+	}
+}
+
 // NewHandler wires the service, validator, and LiveKit credentials, then
 // registers routes under /v1/recordings/ and /v1/webhooks/.
 //
@@ -62,7 +78,8 @@ func NewHandler(svc *Service, validator *token.Validator, apiKey, apiSecret, rec
 		svc: svc, validator: validator, apiKey: apiKey, apiSecret: apiSecret,
 		recordingsBase: recordingsBase, filePrefix: filePrefix,
 		recordingsSecret: recordingsSecret, log: log,
-		mux: http.NewServeMux(),
+		playbackTTL: defaultPlaybackTTL,
+		mux:         http.NewServeMux(),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -190,7 +207,7 @@ func (h *Handler) buildPlaybackURL(outputURI string) string {
 	if h.recordingsSecret == "" {
 		return base
 	}
-	expiry := time.Now().Add(time.Hour).Unix()
+	expiry := time.Now().Add(h.playbackTTL).Unix()
 	sum := md5.Sum([]byte(fmt.Sprintf("%d%s %s", expiry, rel, h.recordingsSecret)))
 	token := base64.RawURLEncoding.EncodeToString(sum[:])
 	return fmt.Sprintf("%s?md5=%s&expires=%d", base, token, expiry)
