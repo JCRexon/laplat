@@ -1,4 +1,12 @@
 <script lang="ts">
+  // Self-hosted Be Vietnam Pro (Fontsource) — bundled into the build, no CDN
+  // call. Each weight CSS carries the latin / latin-ext / vietnamese subsets with
+  // unicode-range, so the browser only fetches the glyphs a page actually uses.
+  import "@fontsource/be-vietnam-pro/400.css";
+  import "@fontsource/be-vietnam-pro/500.css";
+  import "@fontsource/be-vietnam-pro/600.css";
+  import "@fontsource/be-vietnam-pro/700.css";
+  import "@fontsource/be-vietnam-pro/800.css";
   import "../app.css";
   import { onMount } from "svelte";
   import { TIER_LABEL } from "$lib/tier";
