@@ -465,6 +465,27 @@ paid class without ownership). This does **not** discharge ADR-011 — the
 identity-bound serving authz (nginx `auth_request`) and the `recording.played`
 audit entry remain Pending; prioritise now that paid recordings are reachable.
 
+**Update (2026-06-28) — interim shipped + two findings for the serving authz.**
+- **Shipped (interim):** the playback URL's validity window is now configurable
+  (`LAPLAT_PLAYBACK_TTL`) and defaulted to **5m** (from a hardcoded 1h) — a 12×
+  smaller leak window while the bearer URL remains. Done independently of the
+  `auth_request` build.
+- **Finding 1 — "identity" is necessarily a scoped token, not the session.** The
+  browser fetches recordings from nginx on a **different origin** than the BFF
+  that holds the session cookie, so nginx/authd cannot see the user's session.
+  The realistic `auth_request` binding is therefore a **per-user, per-recording,
+  short-lived signed token** authd validates and re-checks against live
+  entitlement — not the literal session. (Routing bytes through the BFF to carry
+  the cookie is rejected: it puts the app in the byte path, against ADR-012.)
+- **Finding 2 — the `recording.played` audit must hook the serving check, not the
+  listing endpoint.** The BFF calls the playback *listing* endpoint from catalog
+  and dashboard `load` (on every page render, per session); auditing there would
+  put Vault-signed, advisory-locked writes on a page-load hot path — the exact
+  anti-pattern ADR-010 removed for presence. So the audit belongs in the
+  `auth_request` serving check (fires on real byte access), deduped to once per
+  grant, not per range request. It ships **with** the `auth_request` work, not
+  before it.
+
 ---
 
 ## ADR-012 — Storage tiers: S3-compatible object store on a separate host; DB for text; no block; file deferred
