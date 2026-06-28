@@ -65,18 +65,20 @@ once per checkpoint, not once per join.
 
 `AuditEntry` and its canonical encoding live in `pkg/contracts`; the signer and
 the chained insert live in the store. A service records by handing the store an
-entry — the store assembles the chain, signs, and inserts atomically with the
-mutation. Adding an audited action is a new `AuditAction` constant plus passing
-an entry to the audited store method — no new infrastructure. Same Lego shape as
-the assurance signals (see AUTH-EXTENSIBILITY.md).
+`AuditInput` (actor, action, target, optional metadata) — the store assembles the
+chain, signs, and inserts atomically with the mutation. Adding an audited action
+is a new `AuditAction` constant plus passing an `AuditInput` to the audited store
+method — no new infrastructure. Same Lego shape as the assurance signals (see
+AUTH-EXTENSIBILITY.md).
 
 ```go
-const ActionUserSuspended AuditAction = "user.suspended"   // 1. name it
+// 1. name the action (pkg/contracts/audit.go)
+const ActionUserSuspended AuditAction = "user.suspended"
 
 // 2. the store method records it in-transaction with the mutation
-store.SuspendUserAudited(ctx, targetID, audit.Entry{
-    ActorID: claims.Subject, ActorRole: "platform_moderator",
-    Action: ActionUserSuspended, TargetType: "user", TargetID: targetID,
+store.SuspendUserAudited(ctx, store.AuditInput{
+    ActorID: claims.Subject, ActorRole: contracts.AuditRoleModerator,
+    Action: contracts.ActionUserSuspended, TargetType: "user", TargetID: targetID,
 })
 ```
 
