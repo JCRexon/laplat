@@ -72,6 +72,17 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
 - Class catalog, live sessions (LiveKit room grants), instructor onboarding
   (self-apply + moderator grant/revoke), platform moderation.
 - Append-only **audit log** (`internal/audit`, `internal/store/audit.go`).
+- **Presence auditing** (`internal/presence`, ADR-010): append-only
+  `presence_events` on the join/leave hot path (stage 1), folded into the global
+  audit chain by a periodic Vault-signed **Merkle checkpoint** worker with an
+  inclusion-proof verifier (stage 2). `LAPLAT_PRESENCE_CHECKPOINT_INTERVAL`
+  (default 30s).
+- **Entitlements** (`internal/entitlement`, migration 00020, PR #52): durable
+  per-account ownership gate for paid content. `classes.price_cents` marks paid
+  classes (0 = free floor); enrollment and recording playback consult the gate
+  (free unchanged; paid without ownership → 402). Moderator grant/revoke via
+  `POST/DELETE /v1/entitlements`, `GET /v1/entitlements/me`. Durable across a
+  tier downgrade. The purchase/charge step still needs a provider (Blocked #1).
 - **Recording-consent ledger** (`internal/consent`, PR #29/#30): append-only,
   signed, chained; effective-consent = latest-wins; `RecordingAllowed` gate
   (every *present* participant must have a current "yes"); `VerifyChain`;

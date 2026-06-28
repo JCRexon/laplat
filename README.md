@@ -7,7 +7,7 @@ Decree 147 / PDPL obligations, with a tamper-evident audit and consent trail for
 the parts that matter legally.
 
 - **Backend:** Go service `authd` (auth, identity, classes, sessions, recordings,
-  moderation, consent, audit) over Postgres.
+  entitlements, moderation, consent, audit) over Postgres.
 - **Frontend:** SvelteKit, run as a BFF — tokens live only in httpOnly cookies and
   the server proxies `authd`.
 - **Architecture:** a pragmatic modular monolith (one deployable; per-domain
