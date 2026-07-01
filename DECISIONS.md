@@ -486,6 +486,24 @@ audit entry remain Pending; prioritise now that paid recordings are reachable.
   grant, not per range request. It ships **with** the `auth_request` work, not
   before it.
 
+**Update (2026-06-28) — Part 2 shipped; ADR-011 now Accepted (built).** The
+identity-bound serving authz is in: nginx `auth_request`s every recording byte
+fetch to authd's `GET /v1/recordings/authz`, which verifies a per-viewer,
+per-recording HMAC playback token (replacing the `secure_link` md5), confirms the
+token is for the requested file, re-checks `EnsureRecordingAccess` **live** (a
+mid-window revocation now bites), and writes a `recording.played` audit entry
+**deduped once per grant** (so per-range subrequests don't spam the signed chain).
+Bytes never transit authd; nginx holds no secret (authd signs the token with
+`LAPLAT_RECORDINGS_SECRET`). What this deliberately does NOT change: the token is
+still URL-borne, but it is now scoped, short-lived, live-revocable and audited —
+possession alone no longer grants durable access.
+- **Residual — rate limiting.** `/v1/recordings/authz` sits behind the global
+  per-IP limiter, and nginx is a single source IP, so heavy scrubbing (many range
+  requests) could trip it. Follow-up: exempt the authz path or cache the
+  subrequest in nginx. Noted, not done.
+- **Verification.** Go side is unit + integration tested; the nginx/compose wiring
+  is verified by inspection and needs a live `docker compose` smoke.
+
 ---
 
 ## ADR-012 — Storage tiers: S3-compatible object store on a separate host; DB for text; no block; file deferred
