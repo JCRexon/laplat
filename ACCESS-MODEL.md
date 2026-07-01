@@ -99,7 +99,7 @@ downgrade takes effect immediately rather than waiting out a token's TTL):
 | Create / join a live session | `phone_verified` | `MeetsPhoneVerification()` — [`internal/session/session.go`](internal/session/session.go) |
 | Create a class | `phone_verified` + `can_instruct` | `Create` — [`internal/class/class.go`](internal/class/class.go) |
 | Enroll in a class | `declared` (+ entitlement if paid) | `Enroll` — [`internal/class/enrollment.go`](internal/class/enrollment.go) |
-| Play a recording | none if free; entitlement if paid | `playback` — [`internal/recording/http.go`](internal/recording/http.go) |
+| Play a recording | none if free; entitlement if paid; identity-bound + audited at serve time (ADR-011) | `playback` + `authz` — [`internal/recording/http.go`](internal/recording/http.go) |
 | Grant / revoke an entitlement | `platform_moderator` (until a payment provider drives it) | [`internal/entitlement`](internal/entitlement) |
 | Become an instructor | `verified` (eKYC) | `POST /v1/instructor/apply` — [`internal/auth`](internal/auth) |
 | Suspend / reinstate / set-instructor | `platform_moderator` | [`internal/moderation`](internal/moderation) |
@@ -124,7 +124,11 @@ Claim helpers (`MeetsAdultDeclaration`, `MeetsPhoneVerification`,
   (comp/support); a payment provider will drive them on a completed charge.
 - **Built (media infra):** a LiveKit + egress server in the stack so recordings
   capture end-to-end, webhook-driven egress status reconciliation, and recording
-  playback (nginx `secure_link`-signed URLs).
+  playback that is **identity-bound and audited per byte-fetch** — nginx
+  `auth_request`s each fetch to authd, which verifies a per-viewer, per-recording
+  token, re-checks entitlement live, and logs `recording.played` (ADR-011,
+  superseding the earlier `secure_link` bearer URLs). Egress load is bounded by a
+  global concurrent-recording cap and a per-host start rate limit (ADR-008/012).
 - **In review:** Zalo (OAuth) sign-in.
 - **Planned:** the payment provider (Stripe/VNPay) — the only remaining piece of
   payments now that the entitlements model + gate are built; on a completed charge

@@ -4,7 +4,7 @@ A running snapshot of where the project is and what's next, so a fresh session
 (or a returning human) can get up to speed without re-reading the whole chat
 history. Update the "Current state" and "Next tasks" sections as work lands.
 
-_Last updated: 2026-06-28 — after presence-auditing Merkle checkpoints (PR #51) and the entitlements scaffolding (this branch)._
+_Last updated: 2026-06-28 — after presence checkpoints (#51), entitlements (#52), ADR-011 recording-playback authz (#56/#57), entitlement audit (#61), and recording start quotas (#59/#60/#62)._
 
 ## What laplat is
 
@@ -82,7 +82,22 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
   classes (0 = free floor); enrollment and recording playback consult the gate
   (free unchanged; paid without ownership → 402). Moderator grant/revoke via
   `POST/DELETE /v1/entitlements`, `GET /v1/entitlements/me`. Durable across a
-  tier downgrade. The purchase/charge step still needs a provider (Blocked #1).
+  tier downgrade. Grant/revoke are **audited atomically** (`entitlement.granted`
+  / `entitlement.revoked`, ADR-013, PR #61). The purchase/charge step still needs
+  a provider (Blocked #1).
+- **Recording playback authz** (`internal/recording`, ADR-011, PRs #56/#57):
+  playback is identity-bound, not a bearer link. The playback URL carries a
+  per-viewer, per-recording short-lived HMAC token; nginx `auth_request`s every
+  byte fetch to `GET /v1/recordings/authz`, which verifies the token, re-checks
+  entitlement live, and audits the access (`recording.played`, deduped per
+  grant). `LAPLAT_PLAYBACK_TTL` (default 5m). Smoke: `scripts/playback-authz-smoke.sh`.
+- **Recording start quotas** (`internal/recording`, ADR-008/012, PRs #60/#62):
+  a global concurrent-recording cap (`LAPLAT_RECORDING_MAX_CONCURRENT`, 0 =
+  unlimited → 503) and a per-host start rate limit (`LAPLAT_RECORDING_START_RPS`
+  / `_BURST`, 0 = disabled → 429) bound egress load and abuse.
+- **Rate-limit exemption** (`internal/httpx`, PR #59): the server-to-server
+  endpoints (`/v1/recordings/authz`, `/v1/webhooks/`) skip the per-IP limiter —
+  they share one source IP (nginx/LiveKit) and carry their own auth.
 - **Recording-consent ledger** (`internal/consent`, PR #29/#30): append-only,
   signed, chained; effective-consent = latest-wins; `RecordingAllowed` gate
   (every *present* participant must have a current "yes"); `VerifyChain`;
@@ -109,14 +124,10 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
     live/scheduled/ended status badges, recording count shown inline per session.
 - **Playback serving** (PR #33): nginx:alpine on port 9090 serves completed
   recordings from the shared `recordings` named volume.
-- **nginx secure_link** (current branch): playback URLs are now HMAC-MD5 signed
-  with a 1-hour expiry. `authd` computes `md5("$expires$path $secret")` (base64url)
-  and appends `?md5=HASH&expires=UNIX`. nginx validates in-process via its
-  `secure_link` module — zero subrequests per range request (critical for video
-  scrubbing). Shared secret in `LAPLAT_RECORDINGS_SECRET` / compose env var
-  `RECORDINGS_SECRET` (dev value: `devrecordingssecret`).
-  - `NGINX_ENVSUBST_TEMPLATE_VARS: RECORDINGS_SECRET` limits envsubst so nginx's
-    own `$uri`, `$arg_*`, `$secure_link*` variables survive template processing.
+- **nginx secure_link** (PR #37) — **superseded by the ADR-011 auth_request
+  playback authz above** (#57). The static HMAC-MD5 `secure_link` bearer URL was
+  replaced by nginx `auth_request` to authd; nginx no longer holds a secret
+  (`LAPLAT_RECORDINGS_SECRET` is now the token-signing key on authd only).
 - **Class enrollment** (PR #33): `class_members` table (migration 00015); store
   methods; declared-tier gate; HTTP at `POST/DELETE /v1/classes/{id}/enroll`.
   Catalog shows Enroll/Unenroll buttons.
@@ -169,8 +180,8 @@ unblocked list — these close loops on features already half-built.
 2. **Recording playback surface**. After a session ends, the instructor (and
    enrolled learners) should be able to play back recordings from the room page
    or a class-detail view. `GET /v1/recordings/sessions/{id}/playback` is fully
-   implemented and now returns secure_link-signed URLs — this is purely a missing
-   UI surface.
+   implemented and returns identity-bound signed URLs (ADR-011) — this is purely
+   a missing UI surface.
 
 3. ~~**Entitlements scaffolding** (the non-provider half of payments).~~ **Done**
    ([`internal/entitlement`](internal/entitlement), migration 00020): durable
