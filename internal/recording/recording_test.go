@@ -118,6 +118,16 @@ func (f *fakeRepo) AppendAudit(_ context.Context, in store.AuditInput) error {
 	return nil
 }
 
+func (f *fakeRepo) CountInFlightRecordings(_ context.Context) (int, error) {
+	n := 0
+	for _, r := range f.recs {
+		if isInFlight(r.Status) {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func isInFlight(s string) bool {
 	return s == StatusStarting || s == StatusActive || s == StatusStopping
 }
@@ -190,6 +200,34 @@ func TestStart_Records(t *testing.T) {
 	}
 	if rec.EgressID != "EG_1" || rec.Status != StatusActive {
 		t.Fatalf("rec = %+v", rec)
+	}
+}
+
+// A global concurrency cap refuses new starts once the in-flight count is at the
+// limit — even for a different session (the cap is global, ADR-008/012).
+func TestStart_ConcurrencyCap(t *testing.T) {
+	repo := newFakeRepo()
+	repo.allowed = true
+	repo.recs["other"] = &store.Recording{ID: "other", SessionID: "S-OTHER", Status: StatusActive}
+	eg := &fakeEgress{startStatus: livekit.EgressActive}
+	svc, err := NewService(repo, eg, WithMaxConcurrent(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(context.Background(), hostClaims(), "S1"); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("err = %v, want ErrCapacity", err)
+	}
+	if eg.started != 0 {
+		t.Fatal("egress must not be called when at capacity")
+	}
+
+	// Unlimited (the default) lets the same setup through.
+	repo2 := newFakeRepo()
+	repo2.allowed = true
+	repo2.recs["other"] = &store.Recording{ID: "other", SessionID: "S-OTHER", Status: StatusActive}
+	if _, err := newSvc(t, repo2, &fakeEgress{startStatus: livekit.EgressActive}).
+		Start(context.Background(), hostClaims(), "S1"); err != nil {
+		t.Fatalf("unlimited Start should pass: %v", err)
 	}
 }
 
