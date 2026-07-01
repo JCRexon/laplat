@@ -355,6 +355,9 @@ func writeServiceErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrCapacity):
 		w.Header().Set("Retry-After", "30")
 		writeErr(w, http.StatusServiceUnavailable, "recording capacity reached, try again later")
+	case errors.Is(err, ErrStartRateLimited):
+		w.Header().Set("Retry-After", "60")
+		writeErr(w, http.StatusTooManyRequests, "starting recordings too frequently, slow down")
 	default:
 		writeErr(w, http.StatusInternalServerError, "internal error")
 	}

@@ -259,7 +259,14 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		recordingSvc, err := recording.NewService(st, egressClient, recording.WithMaxConcurrent(cfg.LiveKit.RecordingMaxConcurrent))
+		recOpts := []recording.ServiceOption{recording.WithMaxConcurrent(cfg.LiveKit.RecordingMaxConcurrent)}
+		if cfg.LiveKit.RecordingStartRPS > 0 {
+			// Per-host start rate limit, keyed by the host's subject.
+			recOpts = append(recOpts, recording.WithStartLimiter(
+				httpx.NewRateLimiter(cfg.LiveKit.RecordingStartRPS, cfg.LiveKit.RecordingStartBurst)))
+			log.Info("recording start rate limit enabled", "rps", cfg.LiveKit.RecordingStartRPS, "burst", cfg.LiveKit.RecordingStartBurst)
+		}
+		recordingSvc, err := recording.NewService(st, egressClient, recOpts...)
 		if err != nil {
 			return err
 		}

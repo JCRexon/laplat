@@ -231,6 +231,45 @@ func TestStart_ConcurrencyCap(t *testing.T) {
 	}
 }
 
+// fakeLimiter is a canned StartLimiter recording the keys it was asked about.
+type fakeLimiter struct {
+	allow bool
+	keys  []string
+}
+
+func (f *fakeLimiter) Allow(key string) bool {
+	f.keys = append(f.keys, key)
+	return f.allow
+}
+
+// The per-host start limiter throttles starts, keyed by the host's subject, and
+// blocks before egress is touched.
+func TestStart_PerHostRateLimit(t *testing.T) {
+	repo := newFakeRepo()
+	repo.allowed = true
+	lim := &fakeLimiter{allow: false}
+	eg := &fakeEgress{startStatus: livekit.EgressActive}
+	svc, err := NewService(repo, eg, WithStartLimiter(lim))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(context.Background(), hostClaims(), "S1"); !errors.Is(err, ErrStartRateLimited) {
+		t.Fatalf("err = %v, want ErrStartRateLimited", err)
+	}
+	if eg.started != 0 {
+		t.Fatal("egress must not be called when rate limited")
+	}
+	if len(lim.keys) != 1 || lim.keys[0] != "host-1" {
+		t.Fatalf("limiter should be keyed by host subject, got %v", lim.keys)
+	}
+
+	// Once the limiter allows, the start proceeds.
+	lim.allow = true
+	if _, err := svc.Start(context.Background(), hostClaims(), "S1"); err != nil {
+		t.Fatalf("allowed start should pass: %v", err)
+	}
+}
+
 // Only the host may start a recording.
 func TestStart_HostOnly(t *testing.T) {
 	repo := newFakeRepo()
