@@ -98,8 +98,14 @@ const (
 	// across all sessions — a coarse guard on egress load / storage growth
 	// (ADR-008/012). Unset or 0 = unlimited.
 	EnvRecordingMaxConcurrent = "LAPLAT_RECORDING_MAX_CONCURRENT"
-	defaultEgressFilePrefix   = "/out/"
-	defaultPlaybackTTL        = 5 * time.Minute
+	// EnvRecordingStartRPS / ...BURST throttle how often a single host may start
+	// recordings — a fairness/abuse guard (ADR-008/012). RPS unset or 0 disables
+	// the limit; BURST is the bucket size (default 5).
+	EnvRecordingStartRPS       = "LAPLAT_RECORDING_START_RPS"
+	EnvRecordingStartBurst     = "LAPLAT_RECORDING_START_BURST"
+	defaultEgressFilePrefix    = "/out/"
+	defaultPlaybackTTL         = 5 * time.Minute
+	defaultRecordingStartBurst = 5
 
 	// DEV ONLY. When truthy, email/phone OTP login falls back to a console
 	// sender that LOGS the code (no SMTP/SMS vendor needed) — for local
@@ -189,6 +195,10 @@ type LiveKitConfig struct {
 	// RecordingMaxConcurrent caps the number of in-flight recordings across all
 	// sessions (ADR-008/012 start quota); 0 = unlimited.
 	RecordingMaxConcurrent int
+	// RecordingStartRPS / ...Burst throttle recording starts per host (ADR-008/012);
+	// RecordingStartRPS 0 = disabled.
+	RecordingStartRPS   float64
+	RecordingStartBurst int
 }
 
 // SMTPConfig is the (optional) email-OTP transport configuration.
@@ -417,6 +427,14 @@ func parseLiveKit(getenv func(string) string) (*LiveKitConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", EnvRecordingMaxConcurrent, err)
 	}
+	startRPS, err := parsePositiveFloat(getenv(EnvRecordingStartRPS), 0) // unset -> 0 (disabled)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", EnvRecordingStartRPS, err)
+	}
+	startBurst, err := parsePositiveInt(getenv(EnvRecordingStartBurst), defaultRecordingStartBurst)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", EnvRecordingStartBurst, err)
+	}
 	return &LiveKitConfig{
 		APIKey: key, APISecret: secret, URL: url,
 		HTTPURL: httpURL, FilePrefix: filePrefix,
@@ -424,6 +442,8 @@ func parseLiveKit(getenv func(string) string) (*LiveKitConfig, error) {
 		RecordingsSecret:       recordingsSecret,
 		PlaybackTTL:            playbackTTL,
 		RecordingMaxConcurrent: maxConcurrent,
+		RecordingStartRPS:      startRPS,
+		RecordingStartBurst:    startBurst,
 	}, nil
 }
 

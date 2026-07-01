@@ -577,6 +577,16 @@ single-in-flight index is the hard invariant). Still open: a **per-host start
 rate** (fairness/abuse) and **retention lifecycle** (the real *storage* bound,
 which lands with the object-store tier).
 
+**Update (2026-06-28) — per-host start rate shipped.** `recording.Start` now also
+throttles starts per host (keyed by the host's subject) via an in-process
+token-bucket (`LAPLAT_RECORDING_START_RPS` / `..._BURST`; RPS 0 = disabled) →
+HTTP 429. This is the fairness/abuse complement to the global cap: the global cap
+protects the egress server from overload, the per-host rate stops one account
+spamming start/stop. Process-local (per authd instance), like the API limiter —
+adequate for abuse control; a shared limiter is a later multi-instance concern.
+**Retention/lifecycle** (the storage bound) remains open, gated on the
+object-store tier.
+
 **Trade-offs.** Self-hosting object storage is real operational burden; the
 runtime coupling puts storage DR on the app's availability critical path.
 **Assumptions.** In-country self-hosting is viable for residency. **Deferred.** The

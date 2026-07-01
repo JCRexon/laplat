@@ -36,7 +36,15 @@ var (
 	ErrAlreadyRecording = errors.New("recording: a recording is already in flight")
 	ErrNotRecording     = errors.New("recording: no recording in flight")
 	ErrCapacity         = errors.New("recording: concurrent recording capacity reached")
+	ErrStartRateLimited = errors.New("recording: start rate limit exceeded for this host")
 )
+
+// StartLimiter throttles how often a single host may start recordings — a
+// fairness/abuse guard complementing the global concurrency cap (ADR-008/012).
+// *httpx.RateLimiter satisfies it (keyed by host id). Optional: nil = no limit.
+type StartLimiter interface {
+	Allow(key string) bool
+}
 
 // Egress starts and stops LiveKit room recordings (*livekit.EgressClient
 // satisfies it).
@@ -67,13 +75,20 @@ type Service struct {
 	repo   Repo
 	egress Egress
 
-	maxConcurrent int // 0 = unlimited
+	maxConcurrent int          // 0 = unlimited
+	startLimiter  StartLimiter // nil = no per-host start rate limit
 	newID         func() string
 	Now           func() time.Time
 }
 
 // ServiceOption configures a Service.
 type ServiceOption func(*Service)
+
+// WithStartLimiter throttles recording starts per host (keyed by the host's
+// subject). A nil limiter leaves starts unlimited.
+func WithStartLimiter(l StartLimiter) ServiceOption {
+	return func(s *Service) { s.startLimiter = l }
+}
 
 // WithMaxConcurrent caps the number of in-flight recordings across all sessions
 // (ADR-008/012 start quota). A zero or negative value leaves it unlimited.
@@ -104,6 +119,11 @@ func (s *Service) Start(ctx context.Context, claims *contracts.AccessTokenClaims
 	sess, err := s.requireHostSession(ctx, claims.Subject, sessionID)
 	if err != nil {
 		return store.Recording{}, err
+	}
+	// Per-host start rate limit (fairness/abuse guard): consume a token once the
+	// caller is confirmed as the host, before the heavier consent/capacity work.
+	if s.startLimiter != nil && !s.startLimiter.Allow(claims.Subject) {
+		return store.Recording{}, ErrStartRateLimited
 	}
 	allowed, err := s.repo.RecordingAllowed(ctx, sessionID)
 	if err != nil {
