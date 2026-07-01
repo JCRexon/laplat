@@ -92,6 +92,7 @@ store.SuspendUserAudited(ctx, store.AuditInput{
 | `auth.BecomeInstructor` | ✅ | `instructor.self_granted` (actor = self) |
 | session join / leave (presence) | ✅ | `presence.checkpoint` — a periodic Merkle checkpoint anchors `presence_events` into this chain (ADR-010), not one entry per join |
 | recording playback access | ✅ | `recording.played` — written at the serving-authz check, deduped once per grant (ADR-011) |
+| entitlement grant / revoke | ✅ | `entitlement.granted` / `entitlement.revoked` — atomic with the ownership change (ADR-013); the money-path trail |
 | admin eKYC bootstrap (`adminctl`) | ⛔ planned | operator CLI, not a runtime request |
 | eKYC verify / tier transition (runtime) | ⛔ planned | rides with the eKYC provider work |
 
