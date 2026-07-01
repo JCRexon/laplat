@@ -24,6 +24,11 @@ const (
 	// events, anchoring the high-volume presence trail into this signed chain
 	// (ADR-010). A system action; target_id carries the root and covered range.
 	ActionPresenceCheckpoint AuditAction = "presence.checkpoint"
+	// ActionRecordingPlayed records that a user was authorised to fetch a
+	// recording's bytes (ADR-011) — the "who accessed which recording" trail.
+	// Written at the serving-authz check, deduped to once per playback grant.
+	// actor = the viewer (role "self"); target = the recording.
+	ActionRecordingPlayed AuditAction = "recording.played"
 )
 
 // Audit actor roles — the authority under which an action was taken.

@@ -79,6 +79,20 @@ func (s *Store) ActiveRecording(ctx context.Context, sessionID string) (Recordin
 	return r, true, nil
 }
 
+// RecordingByID returns the recording with the given id. ok is false when no
+// such recording exists.
+func (s *Store) RecordingByID(ctx context.Context, id string) (Recording, bool, error) {
+	r, err := s.scanRecording(s.pool.QueryRow(ctx, recordingCols+`
+		FROM recordings WHERE id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Recording{}, false, nil
+	}
+	if err != nil {
+		return Recording{}, false, err
+	}
+	return r, true, nil
+}
+
 // RecordingByEgress returns the recording with the given LiveKit egress id.
 // ok is false when no recording carries that egress id (e.g. stale webhook).
 func (s *Store) RecordingByEgress(ctx context.Context, egressID string) (Recording, bool, error) {
