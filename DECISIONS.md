@@ -631,7 +631,12 @@ identity-bound serving authz is still needed (see its 2026-06-28 update). (b)
 Pricing is modelled per-class only — per-recording or subscription pricing is a
 later schema change. (c) Entitlements are operational state, so the **payment**
 that creates one is what should be audited; an audit entry on grant/revoke is
-deferred.
+deferred. **(c) resolved (2026-06-28):** `Grant`/`Revoke` now append an
+`entitlement.granted` / `entitlement.revoked` entry to the signed audit chain
+**atomically** with the ownership change (`GrantEntitlementAudited` /
+`RevokeEntitlementAudited`) — actor = the grantor/revoker, `target_id` =
+`<subject>:<type>:<resource>`, no jsonb metadata (so it round-trips). A no-op
+revoke writes nothing.
 
 **Alternatives.** A `price`/`is_free` flag with no ownership table (can't express
 "who owns what"); putting entitlements on the audit ledger (rejected per ADR-011 —

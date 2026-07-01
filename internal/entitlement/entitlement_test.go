@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jcrexon/laplat/internal/store"
+	"github.com/jcrexon/laplat/pkg/contracts"
 )
 
 // fakeRepo is an in-memory Repo for unit-testing the gate logic without a DB.
@@ -14,6 +15,7 @@ type fakeRepo struct {
 	owned      map[string]bool     // "subject|type|id" -> active entitlement
 	sessions   map[string]*string  // sessionID -> classID ptr (absent = session not found)
 	granted    []store.Entitlement // recorded grants
+	audits     []store.AuditInput  // audit entries the store would append
 	revokedHit bool
 }
 
@@ -36,19 +38,21 @@ func (f *fakeRepo) ClassIDForSession(_ context.Context, sessionID string) (strin
 	}
 	return *c, true, nil
 }
-func (f *fakeRepo) GrantEntitlement(_ context.Context, in store.GrantEntitlementInput) (store.Entitlement, error) {
+func (f *fakeRepo) GrantEntitlementAudited(_ context.Context, in store.GrantEntitlementInput, audit store.AuditInput) (store.Entitlement, error) {
 	e := store.Entitlement{
 		ID: in.ID, SubjectID: in.SubjectID, ResourceType: in.ResourceType,
 		ResourceID: in.ResourceID, Source: in.Source, PriceCents: in.PriceCents,
 	}
 	f.granted = append(f.granted, e)
+	f.audits = append(f.audits, audit)
 	f.owned[key(in.SubjectID, in.ResourceType, in.ResourceID)] = true
 	return e, nil
 }
-func (f *fakeRepo) RevokeEntitlement(_ context.Context, s, t, id string) (bool, error) {
+func (f *fakeRepo) RevokeEntitlementAudited(_ context.Context, s, t, id string, audit store.AuditInput) (bool, error) {
 	f.revokedHit = true
 	if f.owned[key(s, t, id)] {
 		delete(f.owned, key(s, t, id))
+		f.audits = append(f.audits, audit)
 		return true, nil
 	}
 	return false, nil
@@ -159,7 +163,7 @@ func TestGrantValidation(t *testing.T) {
 		{"negative price", "u1", ResourceClass, "c1", SourcePurchase, -1},
 	}
 	for _, tc := range bad {
-		if _, err := svc.Grant(ctx, tc.subject, tc.rtype, tc.rid, tc.source, tc.price, nil); !errors.Is(err, ErrBadInput) {
+		if _, err := svc.Grant(ctx, "mod", contracts.AuditRoleModerator, tc.subject, tc.rtype, tc.rid, tc.source, tc.price, nil); !errors.Is(err, ErrBadInput) {
 			t.Errorf("%s: want ErrBadInput, got %v", tc.name, err)
 		}
 	}
@@ -167,11 +171,40 @@ func TestGrantValidation(t *testing.T) {
 		t.Fatalf("no invalid grant should reach the repo, got %d", len(f.granted))
 	}
 
-	// A valid grant goes through.
-	if _, err := svc.Grant(ctx, "u1", ResourceClass, "c1", SourcePurchase, 1500, nil); err != nil {
+	// A valid grant goes through and is audited (actor = grantor; target encodes
+	// grantee + resource).
+	if _, err := svc.Grant(ctx, "mod", contracts.AuditRoleModerator, "u1", ResourceClass, "c1", SourcePurchase, 1500, nil); err != nil {
 		t.Fatalf("valid grant failed: %v", err)
 	}
 	if len(f.granted) != 1 {
 		t.Fatalf("want 1 grant recorded, got %d", len(f.granted))
+	}
+	if len(f.audits) != 1 {
+		t.Fatalf("want 1 audit entry, got %d", len(f.audits))
+	}
+	a := f.audits[0]
+	if a.ActorID != "mod" || a.Action != contracts.ActionEntitlementGranted || a.TargetID != "u1:class:c1" {
+		t.Fatalf("unexpected audit entry: %+v", a)
+	}
+}
+
+// Revoking an active entitlement is audited; revoking a non-existent one is not.
+func TestRevokeAudits(t *testing.T) {
+	ctx := context.Background()
+	f := &fakeRepo{owned: map[string]bool{key("u1", ResourceClass, "c1"): true}}
+	svc := newSvc(t, f)
+
+	if ok, err := svc.Revoke(ctx, "mod", contracts.AuditRoleModerator, "u1", ResourceClass, "c1"); err != nil || !ok {
+		t.Fatalf("revoke: ok=%v err=%v", ok, err)
+	}
+	if len(f.audits) != 1 || f.audits[0].Action != contracts.ActionEntitlementRevoked {
+		t.Fatalf("revoke should audit once: %+v", f.audits)
+	}
+	// A no-op revoke (nothing active) writes no audit entry.
+	if ok, _ := svc.Revoke(ctx, "mod", contracts.AuditRoleModerator, "u1", ResourceClass, "c1"); ok {
+		t.Fatal("second revoke should report false")
+	}
+	if len(f.audits) != 1 {
+		t.Fatalf("no-op revoke must not audit, got %d entries", len(f.audits))
 	}
 }

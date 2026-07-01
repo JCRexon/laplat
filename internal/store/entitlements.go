@@ -38,11 +38,10 @@ type GrantEntitlementInput struct {
 	ExpiresAt    *time.Time
 }
 
-// GrantEntitlement inserts a new active entitlement. Returns ErrEntitlementExists
-// if the subject already holds a live one for the same resource.
-func (s *Store) GrantEntitlement(ctx context.Context, in GrantEntitlementInput) (Entitlement, error) {
+// grantEntitlementTx inserts a new active entitlement within an existing tx.
+func grantEntitlementTx(ctx context.Context, tx pgx.Tx, in GrantEntitlementInput) (Entitlement, error) {
 	var e Entitlement
-	err := s.pool.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		INSERT INTO entitlements
 			(id, subject_id, resource_type, resource_id, source, price_cents, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -56,6 +55,33 @@ func (s *Store) GrantEntitlement(ctx context.Context, in GrantEntitlementInput) 
 		return Entitlement{}, ErrEntitlementExists
 	}
 	if err != nil {
+		return Entitlement{}, err
+	}
+	return e, nil
+}
+
+// GrantEntitlementAudited inserts a new active entitlement and records the grant
+// in the audit chain, atomically — a money-path action never lands without its
+// trail (and vice versa). Returns ErrEntitlementExists if the subject already
+// holds a live one for the same resource.
+func (s *Store) GrantEntitlementAudited(ctx context.Context, in GrantEntitlementInput, auditIn AuditInput) (Entitlement, error) {
+	if s.auditSigner == nil {
+		return Entitlement{}, ErrNoAuditSigner
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Entitlement{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit; best-effort otherwise
+
+	e, err := grantEntitlementTx(ctx, tx, in)
+	if err != nil {
+		return Entitlement{}, err
+	}
+	if _, err := s.appendAuditTx(ctx, tx, auditIn); err != nil {
+		return Entitlement{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return Entitlement{}, err
 	}
 	return e, nil
@@ -75,18 +101,37 @@ func (s *Store) HasActiveEntitlement(ctx context.Context, subjectID, resourceTyp
 	return ok, err
 }
 
-// RevokeEntitlement marks the subject's active entitlement for the resource as
-// revoked (refund/chargeback/admin). Reports whether a row was revoked (false if
-// none was active).
-func (s *Store) RevokeEntitlement(ctx context.Context, subjectID, resourceType, resourceID string) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `
+// RevokeEntitlementAudited marks the subject's active entitlement for the
+// resource as revoked (refund/chargeback/admin) and records it in the audit
+// chain, atomically. Reports whether a row was revoked (false if none was
+// active); when nothing is revoked, no audit entry is written.
+func (s *Store) RevokeEntitlementAudited(ctx context.Context, subjectID, resourceType, resourceID string, auditIn AuditInput) (bool, error) {
+	if s.auditSigner == nil {
+		return false, ErrNoAuditSigner
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit; best-effort otherwise
+
+	tag, err := tx.Exec(ctx, `
 		UPDATE entitlements SET revoked_at = now()
 		WHERE subject_id = $1 AND resource_type = $2 AND resource_id = $3
 		  AND revoked_at IS NULL`, subjectID, resourceType, resourceID)
 	if err != nil {
 		return false, err
 	}
-	return tag.RowsAffected() > 0, nil
+	if tag.RowsAffected() == 0 {
+		return false, nil // nothing active to revoke; no trail to write
+	}
+	if _, err := s.appendAuditTx(ctx, tx, auditIn); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ListEntitlements returns the subject's active entitlements ("my library"),

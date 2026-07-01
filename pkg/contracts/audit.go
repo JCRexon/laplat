@@ -29,6 +29,12 @@ const (
 	// Written at the serving-authz check, deduped to once per playback grant.
 	// actor = the viewer (role "self"); target = the recording.
 	ActionRecordingPlayed AuditAction = "recording.played"
+	// ActionEntitlementGranted / ...Revoked record a change to who owns access to
+	// paid content (ADR-013) — the money-path trail (comp/support today, a payment
+	// provider later). actor = the grantor/revoker; target_id encodes the grantee
+	// and resource as "<subject>:<resourceType>:<resourceID>".
+	ActionEntitlementGranted AuditAction = "entitlement.granted"
+	ActionEntitlementRevoked AuditAction = "entitlement.revoked"
 )
 
 // Audit actor roles — the authority under which an action was taken.

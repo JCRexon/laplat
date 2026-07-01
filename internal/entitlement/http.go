@@ -79,7 +79,8 @@ func (h *Handler) grant(w http.ResponseWriter, r *http.Request, claims *contract
 	if !decode(w, r, &req) {
 		return
 	}
-	ent, err := h.svc.Grant(r.Context(), req.SubjectID, ResourceClass, req.ClassID, SourceGrant, req.PriceCents, nil)
+	ent, err := h.svc.Grant(r.Context(), claims.Subject, contracts.AuditRoleModerator,
+		req.SubjectID, ResourceClass, req.ClassID, SourceGrant, req.PriceCents, nil)
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusCreated, entitlementJSON(ent))
@@ -107,7 +108,8 @@ func (h *Handler) revoke(w http.ResponseWriter, r *http.Request, claims *contrac
 	if !decode(w, r, &req) {
 		return
 	}
-	ok, err := h.svc.Revoke(r.Context(), req.SubjectID, ResourceClass, req.ClassID)
+	ok, err := h.svc.Revoke(r.Context(), claims.Subject, contracts.AuditRoleModerator,
+		req.SubjectID, ResourceClass, req.ClassID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return

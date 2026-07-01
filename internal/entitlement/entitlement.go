@@ -12,9 +12,11 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jcrexon/laplat/internal/store"
+	"github.com/jcrexon/laplat/pkg/contracts"
 )
 
 // Resource types and acquisition sources (mirror the migration CHECK sets).
@@ -35,11 +37,13 @@ var (
 	ErrBadInput        = errors.New("entitlement: invalid input")
 )
 
-// Repo is the persistence the service needs (*store.Store satisfies it).
+// Repo is the persistence the service needs (*store.Store satisfies it). Grant
+// and revoke are audited atomically (ADR-013) — the ownership change and its
+// signed trail commit together.
 type Repo interface {
-	GrantEntitlement(ctx context.Context, in store.GrantEntitlementInput) (store.Entitlement, error)
+	GrantEntitlementAudited(ctx context.Context, in store.GrantEntitlementInput, audit store.AuditInput) (store.Entitlement, error)
 	HasActiveEntitlement(ctx context.Context, subjectID, resourceType, resourceID string) (bool, error)
-	RevokeEntitlement(ctx context.Context, subjectID, resourceType, resourceID string) (bool, error)
+	RevokeEntitlementAudited(ctx context.Context, subjectID, resourceType, resourceID string, audit store.AuditInput) (bool, error)
 	ListEntitlements(ctx context.Context, subjectID string) ([]store.Entitlement, error)
 	ClassPriceCents(ctx context.Context, classID string) (int, bool, error)
 	ClassIDForSession(ctx context.Context, sessionID string) (string, bool, error)
@@ -100,10 +104,12 @@ func (s *Service) EnsureRecordingAccess(ctx context.Context, subjectID, sessionI
 	return s.EnsureClassAccess(ctx, subjectID, classID)
 }
 
-// Grant records that subjectID owns resource. Source is "purchase" (a completed
-// charge) or "grant" (a moderator comp). Returns ErrExists if an active
-// entitlement already covers it.
-func (s *Service) Grant(ctx context.Context, subjectID, resourceType, resourceID, source string, priceCents int, expiresAt *time.Time) (store.Entitlement, error) {
+// Grant records that subjectID owns resource, attributed to actor (the
+// grantor — a moderator today, a payment callback later). Source is "purchase"
+// (a completed charge) or "grant" (a moderator comp). The grant and its audit
+// entry commit atomically. Returns ErrExists if an active entitlement already
+// covers it.
+func (s *Service) Grant(ctx context.Context, actorID, actorRole, subjectID, resourceType, resourceID, source string, priceCents int, expiresAt *time.Time) (store.Entitlement, error) {
 	if subjectID == "" || resourceID == "" {
 		return store.Entitlement{}, ErrBadInput
 	}
@@ -116,7 +122,7 @@ func (s *Service) Grant(ctx context.Context, subjectID, resourceType, resourceID
 	if priceCents < 0 {
 		return store.Entitlement{}, ErrBadInput
 	}
-	return s.repo.GrantEntitlement(ctx, store.GrantEntitlementInput{
+	return s.repo.GrantEntitlementAudited(ctx, store.GrantEntitlementInput{
 		ID:           s.newID(),
 		SubjectID:    subjectID,
 		ResourceType: resourceType,
@@ -124,13 +130,27 @@ func (s *Service) Grant(ctx context.Context, subjectID, resourceType, resourceID
 		Source:       source,
 		PriceCents:   priceCents,
 		ExpiresAt:    expiresAt,
-	})
+	}, auditInput(actorID, actorRole, contracts.ActionEntitlementGranted, subjectID, resourceType, resourceID))
 }
 
-// Revoke withdraws an active entitlement (refund/chargeback/admin). Reports
-// whether one was revoked.
-func (s *Service) Revoke(ctx context.Context, subjectID, resourceType, resourceID string) (bool, error) {
-	return s.repo.RevokeEntitlement(ctx, subjectID, resourceType, resourceID)
+// Revoke withdraws an active entitlement (refund/chargeback/admin), attributed
+// to actor, and records it atomically. Reports whether one was revoked.
+func (s *Service) Revoke(ctx context.Context, actorID, actorRole, subjectID, resourceType, resourceID string) (bool, error) {
+	return s.repo.RevokeEntitlementAudited(ctx, subjectID, resourceType, resourceID,
+		auditInput(actorID, actorRole, contracts.ActionEntitlementRevoked, subjectID, resourceType, resourceID))
+}
+
+// auditInput builds the audit entry for a grant/revoke: the actor is the
+// grantor/revoker; target_id encodes the grantee and resource so the signed
+// entry is self-contained (no jsonb metadata, which would not round-trip).
+func auditInput(actorID, actorRole string, action contracts.AuditAction, subjectID, resourceType, resourceID string) store.AuditInput {
+	return store.AuditInput{
+		ActorID:    actorID,
+		ActorRole:  actorRole,
+		Action:     action,
+		TargetType: "entitlement",
+		TargetID:   fmt.Sprintf("%s:%s:%s", subjectID, resourceType, resourceID),
+	}
 }
 
 // List returns the caller's active entitlements ("my library").
