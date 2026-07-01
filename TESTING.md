@@ -64,6 +64,16 @@ verifiable without any of that:
   - `--with-db`: seeds a session + recording row and drives it
     `starting → active → completed` via the webhooks, reading the row back.
 
+- `scripts/playback-authz-smoke.sh` exercises the recording playback
+  serving-authz (ADR-011): it forges playback tokens the way authd mints them
+  (HMAC over `<subject>|<recordingID>|<exp>`, keyed by `LAPLAT_RECORDINGS_SECRET`)
+  and asserts authd's `GET /v1/recordings/authz` decisions:
+  - default: token-rejection ladder (missing/tampered/expired/wrong-key → 401;
+    valid-but-unknown-recording → 403), no DB needed;
+  - `--with-db`: seeds a completed recording and checks the allow path
+    (valid token + correct file → 204; wrong file → 403), plus the nginx wiring
+    (a tokenless fetch through nginx is rejected by `auth_request` → 401).
+
   To exercise the *real* media pipeline (occasional, local-only — too
   resource-heavy for CI), publish a synthetic track headlessly with the LiveKit
   CLI (`lk room join --publish-demo <room>`), then start a room-composite egress.
