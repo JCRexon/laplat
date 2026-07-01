@@ -109,6 +109,34 @@ func TestRecording_TerminalIsSticky(t *testing.T) {
 	}
 }
 
+// CountInFlightRecordings counts non-terminal recordings across ALL sessions —
+// the global egress load the start quota bounds (ADR-008/012).
+func TestRecording_CountInFlight(t *testing.T) {
+	st, ctx := newRecordingStore(t)
+	if _, err := st.CreateSession(ctx, store.NewSession{ID: "S2", Kind: "direct", LivekitRoom: "room-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.CountInFlightRecordings(ctx); err != nil || n != 0 {
+		t.Fatalf("empty count = %d err=%v, want 0", n, err)
+	}
+	if err := st.CreateRecording(ctx, "r1", "S1", "active"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateRecording(ctx, "r2", "S2", "starting"); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.CountInFlightRecordings(ctx); err != nil || n != 2 {
+		t.Fatalf("in-flight count = %d err=%v, want 2 (across sessions)", n, err)
+	}
+	// A terminal recording no longer counts.
+	if err := st.UpdateRecordingStatus(ctx, "r1", "completed", true, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.CountInFlightRecordings(ctx); err != nil || n != 1 {
+		t.Fatalf("count after completion = %d err=%v, want 1", n, err)
+	}
+}
+
 // The partial unique index allows only one in-flight recording per session, but
 // a fresh one once the prior reaches a terminal status.
 func TestRecording_OneInFlightPerSession(t *testing.T) {

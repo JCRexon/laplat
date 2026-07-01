@@ -79,6 +79,17 @@ func (s *Store) ActiveRecording(ctx context.Context, sessionID string) (Recordin
 	return r, true, nil
 }
 
+// CountInFlightRecordings returns how many recordings are currently non-terminal
+// (starting/active/stopping) across all sessions — the live egress load, used to
+// cap concurrent recordings (ADR-008/012).
+func (s *Store) CountInFlightRecordings(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM recordings
+		WHERE status IN ('starting','active','stopping')`).Scan(&n)
+	return n, err
+}
+
 // RecordingByID returns the recording with the given id. ok is false when no
 // such recording exists.
 func (s *Store) RecordingByID(ctx context.Context, id string) (Recording, bool, error) {

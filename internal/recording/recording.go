@@ -35,6 +35,7 @@ var (
 	ErrConsentRequired  = errors.New("recording: not all present participants have consented")
 	ErrAlreadyRecording = errors.New("recording: a recording is already in flight")
 	ErrNotRecording     = errors.New("recording: no recording in flight")
+	ErrCapacity         = errors.New("recording: concurrent recording capacity reached")
 )
 
 // Egress starts and stops LiveKit room recordings (*livekit.EgressClient
@@ -57,6 +58,7 @@ type Repo interface {
 	RecordingByEgress(ctx context.Context, egressID string) (store.Recording, bool, error)
 	RecordingByID(ctx context.Context, id string) (store.Recording, bool, error)
 	CompletedRecordingsBySession(ctx context.Context, sessionID string) ([]store.Recording, error)
+	CountInFlightRecordings(ctx context.Context) (int, error)
 	AppendAudit(ctx context.Context, in store.AuditInput) error
 }
 
@@ -65,16 +67,34 @@ type Service struct {
 	repo   Repo
 	egress Egress
 
-	newID func() string
-	Now   func() time.Time
+	maxConcurrent int // 0 = unlimited
+	newID         func() string
+	Now           func() time.Time
+}
+
+// ServiceOption configures a Service.
+type ServiceOption func(*Service)
+
+// WithMaxConcurrent caps the number of in-flight recordings across all sessions
+// (ADR-008/012 start quota). A zero or negative value leaves it unlimited.
+func WithMaxConcurrent(n int) ServiceOption {
+	return func(s *Service) {
+		if n > 0 {
+			s.maxConcurrent = n
+		}
+	}
 }
 
 // NewService wires the repo and egress client.
-func NewService(repo Repo, egress Egress) (*Service, error) {
+func NewService(repo Repo, egress Egress, opts ...ServiceOption) (*Service, error) {
 	if repo == nil || egress == nil {
 		return nil, errors.New("recording: repo and egress are required")
 	}
-	return &Service{repo: repo, egress: egress, newID: newID, Now: time.Now}, nil
+	s := &Service{repo: repo, egress: egress, newID: newID, Now: time.Now}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
 // Start begins recording the session. Host only. The consent gate
@@ -91,6 +111,20 @@ func (s *Service) Start(ctx context.Context, claims *contracts.AccessTokenClaims
 	}
 	if !allowed {
 		return store.Recording{}, ErrConsentRequired
+	}
+
+	// Coarse start quota: bound concurrent egress load / storage growth
+	// (ADR-008/012). A soft cap — the count-then-create is not atomic, so a burst
+	// of concurrent starts may overshoot slightly; that is acceptable for a
+	// load guard (the per-session single-in-flight invariant is the hard one).
+	if s.maxConcurrent > 0 {
+		n, err := s.repo.CountInFlightRecordings(ctx)
+		if err != nil {
+			return store.Recording{}, err
+		}
+		if n >= s.maxConcurrent {
+			return store.Recording{}, ErrCapacity
+		}
 	}
 
 	id := s.newID()

@@ -566,6 +566,15 @@ storage (all binary blobs) · *(File — only if a real POSIX need appears)*.
   it); private subnet, TLS, **scoped per-purpose credentials** (egress write-only;
   serving read-only), **encryption at rest** (recordings are PII).
 
+**Update (2026-06-28) — start quota (first cut) shipped.** A **global concurrent-
+recording cap** now bounds live egress load: `recording.Start` refuses beyond
+`LAPLAT_RECORDING_MAX_CONCURRENT` in-flight recordings (0 = unlimited) →
+HTTP 503. It is a **soft cap** (count-then-create is not atomic, so a concurrent
+burst may overshoot slightly — acceptable for a load guard; the per-session
+single-in-flight index is the hard invariant). Still open: a **per-host start
+rate** (fairness/abuse) and **retention lifecycle** (the real *storage* bound,
+which lands with the object-store tier).
+
 **Trade-offs.** Self-hosting object storage is real operational burden; the
 runtime coupling puts storage DR on the app's availability critical path.
 **Assumptions.** In-country self-hosting is viable for residency. **Deferred.** The

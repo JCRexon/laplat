@@ -352,6 +352,9 @@ func writeServiceErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusConflict, "already recording")
 	case errors.Is(err, ErrNotRecording):
 		writeErr(w, http.StatusConflict, "no recording in flight")
+	case errors.Is(err, ErrCapacity):
+		w.Header().Set("Retry-After", "30")
+		writeErr(w, http.StatusServiceUnavailable, "recording capacity reached, try again later")
 	default:
 		writeErr(w, http.StatusInternalServerError, "internal error")
 	}

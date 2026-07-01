@@ -259,7 +259,7 @@ func run(log *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		recordingSvc, err := recording.NewService(st, egressClient)
+		recordingSvc, err := recording.NewService(st, egressClient, recording.WithMaxConcurrent(cfg.LiveKit.RecordingMaxConcurrent))
 		if err != nil {
 			return err
 		}
