@@ -117,6 +117,14 @@ func (s *Store) SetInstructorAudited(ctx context.Context, in AuditInput, grant b
 	})
 }
 
+// AppendAudit records a standalone audit entry with no accompanying state
+// mutation (e.g. recording.played access logging, ADR-011). It still commits
+// through the chained, signed append path, so the entry is tamper-evident like
+// any other.
+func (s *Store) AppendAudit(ctx context.Context, in AuditInput) error {
+	return s.inAuditTx(ctx, in, func(*sqlcdb.Queries) error { return nil })
+}
+
 // inAuditTx runs a mutation and its audit append in one transaction.
 func (s *Store) inAuditTx(ctx context.Context, in AuditInput, mutate func(*sqlcdb.Queries) error) error {
 	if s.auditSigner == nil {

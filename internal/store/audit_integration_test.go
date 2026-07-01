@@ -87,6 +87,32 @@ func TestAudit_RecordsAndVerifies(t *testing.T) {
 	}
 }
 
+// AppendAudit records a standalone entry (no accompanying mutation) that still
+// chains and verifies — the recording.played access-log case (ADR-011). Guards
+// that a metadata-less audited append round-trips the signed bytes.
+func TestAudit_AppendStandalone(t *testing.T) {
+	st, _, v, ctx := newAuditStore(t)
+	if err := st.AppendAudit(ctx, store.AuditInput{
+		ActorID: userA, ActorRole: contracts.AuditRoleSelf,
+		Action: contracts.ActionRecordingPlayed, TargetType: "recording", TargetID: "REC1",
+	}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	entries, err := st.AuditEntries(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Action != contracts.ActionRecordingPlayed || entries[0].TargetID != "REC1" {
+		t.Fatalf("unexpected entries: %+v", entries)
+	}
+	if entries[0].ActorID != userA || entries[0].ActorRole != contracts.AuditRoleSelf {
+		t.Fatalf("actor not recorded: %+v", entries[0])
+	}
+	if err := v.VerifyChain(entries); err != nil {
+		t.Fatalf("VerifyChain: %v", err)
+	}
+}
+
 // The audit log is append-only at the database boundary: UPDATE and DELETE both
 // raise, so history cannot be rewritten in place.
 func TestAudit_ImmutableAtDB(t *testing.T) {

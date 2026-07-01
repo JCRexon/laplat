@@ -18,6 +18,7 @@ type fakeRepo struct {
 	allowed bool
 	recs    map[string]*store.Recording // by id
 	seq     int
+	audits  []store.AuditInput // AppendAudit calls
 }
 
 func newFakeRepo() *fakeRepo {
@@ -103,6 +104,18 @@ func (f *fakeRepo) CompletedRecordingsBySession(_ context.Context, sessionID str
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeRepo) RecordingByID(_ context.Context, id string) (store.Recording, bool, error) {
+	if r, ok := f.recs[id]; ok {
+		return *r, true, nil
+	}
+	return store.Recording{}, false, nil
+}
+
+func (f *fakeRepo) AppendAudit(_ context.Context, in store.AuditInput) error {
+	f.audits = append(f.audits, in)
+	return nil
 }
 
 func isInFlight(s string) bool {

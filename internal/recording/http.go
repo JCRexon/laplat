@@ -2,14 +2,13 @@ package recording
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jcrexon/laplat/internal/entitlement"
@@ -33,6 +32,13 @@ type Handler struct {
 	entitlements     EntitlementGate // nil = free floor (any authed user)
 	log              *slog.Logger
 	mux              *http.ServeMux
+	now              func() time.Time // injectable clock (token expiry / dedup)
+
+	// playbackAudit dedups recording.played entries: the serving-authz check
+	// fires per range request, but a view should audit once. Keyed by
+	// subject|recordingID, guarded by playedMu.
+	playedMu   sync.Mutex
+	playedSeen map[string]time.Time
 }
 
 // defaultPlaybackTTL bounds how long a signed playback URL stays valid — the
@@ -80,6 +86,8 @@ func NewHandler(svc *Service, validator *token.Validator, apiKey, apiSecret, rec
 		recordingsSecret: recordingsSecret, log: log,
 		playbackTTL: defaultPlaybackTTL,
 		mux:         http.NewServeMux(),
+		now:         time.Now,
+		playedSeen:  map[string]time.Time{},
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -88,8 +96,12 @@ func NewHandler(svc *Service, validator *token.Validator, apiKey, apiSecret, rec
 	h.mux.Handle("POST /v1/recordings/sessions/{sessionID}", h.auth(h.start))
 	h.mux.Handle("DELETE /v1/recordings/sessions/{sessionID}", h.auth(h.stop))
 	h.mux.Handle("GET /v1/recordings/sessions/{sessionID}", h.auth(h.list))
-	// Playback: completed recordings for a session, accessible at the none tier.
+	// Playback: completed recordings for a session (entitlement-gated).
 	h.mux.Handle("GET /v1/recordings/sessions/{sessionID}/playback", h.auth(h.playback))
+	// Serving-authz: nginx auth_request subrequest for a recording byte fetch.
+	// Authenticated by the playback token in the URL, NOT the access token — the
+	// browser fetches bytes cross-origin and carries no session cookie (ADR-011).
+	h.mux.HandleFunc("GET /v1/recordings/authz", h.authz)
 	// Webhook ingest: verified by LiveKit JWT, not by our access token.
 	h.mux.HandleFunc("POST /v1/webhooks/livekit", h.liveKitWebhook)
 	return h
@@ -174,7 +186,7 @@ func (h *Handler) playback(w http.ResponseWriter, r *http.Request, claims *contr
 	out := make([]map[string]any, 0, len(recs))
 	for _, rec := range recs {
 		m := recordingJSON(rec)
-		if u := h.buildPlaybackURL(rec.OutputURI); u != "" {
+		if u := h.playbackURL(rec, claims.Subject); u != "" {
 			m["playbackUrl"] = u
 		}
 		out = append(out, m)
@@ -182,35 +194,114 @@ func (h *Handler) playback(w http.ResponseWriter, r *http.Request, claims *contr
 	writeJSON(w, http.StatusOK, map[string]any{"recordings": out})
 }
 
-// buildPlaybackURL converts an outputUri (e.g. "/out/room.mp4") to a public
-// playback URL (e.g. "http://localhost:9090/room.mp4") by stripping filePrefix
-// and prepending recordingsBase. Returns "" when recordingsBase is unset.
-//
-// When recordingsSecret is set, the URL is signed for nginx's secure_link
-// module: ?md5=HASH&expires=UNIX is appended, where HASH is the base64url
-// MD5 of "$expires$path $secret" (the format secure_link_md5 expects).
-// nginx validates the signature in-process — no subrequest on every range
-// request, which matters for video scrubbing.
-func (h *Handler) buildPlaybackURL(outputURI string) string {
-	if h.recordingsBase == "" || outputURI == "" {
-		return ""
+// authz is nginx's auth_request subrequest: it decides whether a playback token
+// may fetch a given recording file. It validates the token (signature + expiry),
+// confirms the requested path is that recording's file, re-checks the viewer's
+// entitlement live (so a mid-window revocation bites), and audits the access
+// once per grant. 204 = allow, 401 = bad/expired token, 403 = wrong path or not
+// entitled. Bytes are never proxied through authd.
+func (h *Handler) authz(w http.ResponseWriter, r *http.Request) {
+	// nginx forwards the ORIGINAL request line in X-Original-URI (its $request_uri);
+	// the subrequest's own $uri/$arg_* do not reflect the parent, so we parse the
+	// path and the playback token (?t=) out of this header.
+	orig, err := url.ParseRequestURI(r.Header.Get("X-Original-URI"))
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
 	}
-	rel := strings.TrimPrefix(outputURI, h.filePrefix)
+	path := orig.Path
+	tok := orig.Query().Get("t")
+	if tok == "" || path == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	subject, recID, err := parsePlaybackToken(tok, h.recordingsSecret, h.now())
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	rec, ok, err := h.svc.Recording(r.Context(), recID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	// The token authorises one recording's file; the requested path must be it.
+	if !ok || relPath(rec.OutputURI, h.filePrefix) != path {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	// Live entitlement re-check.
+	if h.entitlements != nil {
+		if err := h.entitlements.EnsureRecordingAccess(r.Context(), subject, rec.SessionID); err != nil {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+	}
+	// Audit once per grant. Best-effort: a failed audit logs but does not block
+	// playback (a read path should not hard-depend on the audit signer's liveness).
+	if h.shouldAuditPlay(subject, recID) {
+		if err := h.svc.AuditPlayback(r.Context(), subject, rec); err != nil {
+			h.log.Error("recording.played audit failed", "err", err, "recording", recID)
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// shouldAuditPlay reports whether a recording.played entry should be written for
+// this (subject, recording) now — true at most once per playbackTTL window, so
+// the per-range auth_request subrequests of one view collapse to a single audit.
+func (h *Handler) shouldAuditPlay(subject, recID string) bool {
+	key := subject + "|" + recID
+	now := h.now()
+	h.playedMu.Lock()
+	defer h.playedMu.Unlock()
+	if last, seen := h.playedSeen[key]; seen && now.Sub(last) < h.playbackTTL {
+		return false
+	}
+	// Opportunistically evict stale entries so the map does not grow unbounded.
+	for k, t := range h.playedSeen {
+		if now.Sub(t) >= h.playbackTTL {
+			delete(h.playedSeen, k)
+		}
+	}
+	h.playedSeen[key] = now
+	return true
+}
+
+// relPath maps a recording's outputURI to the path nginx serves it at (strip the
+// egress file prefix, ensure a leading slash). Returns "" for a traversal path.
+// playbackURL and the serving-authz check share it, so the URL that is minted and
+// the path that is authorised agree exactly.
+func relPath(outputURI, filePrefix string) string {
+	rel := strings.TrimPrefix(outputURI, filePrefix)
 	if !strings.HasPrefix(rel, "/") {
 		rel = "/" + rel
 	}
-	// Reject paths that traverse above the served directory.
 	if strings.Contains(rel, "..") {
+		return ""
+	}
+	return rel
+}
+
+// playbackURL builds a public playback URL for rec, scoped to the viewer. Returns
+// "" when no public base is configured. When recordingsSecret is set the URL
+// carries a per-viewer, per-recording, short-lived token (ADR-011) that nginx
+// forwards to the serving-authz check; without a secret the URL is unsigned
+// (dev-only, with no nginx enforcement).
+func (h *Handler) playbackURL(rec store.Recording, subject string) string {
+	if h.recordingsBase == "" || rec.OutputURI == "" {
+		return ""
+	}
+	rel := relPath(rec.OutputURI, h.filePrefix)
+	if rel == "" {
 		return ""
 	}
 	base := h.recordingsBase + rel
 	if h.recordingsSecret == "" {
 		return base
 	}
-	expiry := time.Now().Add(h.playbackTTL).Unix()
-	sum := md5.Sum([]byte(fmt.Sprintf("%d%s %s", expiry, rel, h.recordingsSecret)))
-	token := base64.RawURLEncoding.EncodeToString(sum[:])
-	return fmt.Sprintf("%s?md5=%s&expires=%d", base, token, expiry)
+	tok := mintPlaybackToken(h.recordingsSecret, subject, rec.ID, h.now().Add(h.playbackTTL))
+	return base + "?t=" + tok
 }
 
 // liveKitWebhook receives egress lifecycle events from the LiveKit server. The

@@ -152,23 +152,23 @@ services:
     ports:
       - "8080:8080" # exposed for debugging; the web BFF reaches authd in-network
 
-  # Serves completed recording files from the shared named volume. nginx
-  # validates download requests using its built-in secure_link module: authd
-  # signs each playbackUrl with a 1-hour HMAC-MD5 token (shared secret below),
-  # and nginx rejects unsigned or expired requests without calling authd.
+  # Serves completed recording files from the shared named volume. Each byte
+  # fetch is authorised per-request by authd via an nginx auth_request subrequest
+  # (ADR-011): authd verifies the playback token, re-checks the viewer's
+  # entitlement live, and audits the access. authd signs the token with
+  # LAPLAT_RECORDINGS_SECRET; nginx itself holds no secret.
   nginx:
     image: nginx:alpine
     volumes:
       - recordings:/usr/share/nginx/html:ro
-      - ./dev/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
-    environment:
-      RECORDINGS_SECRET: devrecordingssecret
-      # Limit envsubst to only our variable so nginx's $uri/$arg_* are preserved.
-      NGINX_ENVSUBST_TEMPLATE_VARS: RECORDINGS_SECRET
+      - ./dev/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
       - "9090:80"
     depends_on:
-      - egress
+      egress:
+        condition: service_started
+      authd:
+        condition: service_healthy
 
   web:
     build: ./web

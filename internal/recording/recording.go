@@ -55,7 +55,9 @@ type Repo interface {
 	ActiveRecording(ctx context.Context, sessionID string) (store.Recording, bool, error)
 	RecordingsBySession(ctx context.Context, sessionID string) ([]store.Recording, error)
 	RecordingByEgress(ctx context.Context, egressID string) (store.Recording, bool, error)
+	RecordingByID(ctx context.Context, id string) (store.Recording, bool, error)
 	CompletedRecordingsBySession(ctx context.Context, sessionID string) ([]store.Recording, error)
+	AppendAudit(ctx context.Context, in store.AuditInput) error
 }
 
 // Service orchestrates recording start/stop behind the consent gate.
@@ -266,10 +268,28 @@ func (s *Service) HandleWebhookEvent(ctx context.Context, ev *livekit.WebhookEve
 }
 
 // ListCompleted returns completed recordings for a session. Any authenticated
-// user may call this (free-recording floor per ACCESS-MODEL; paid recordings
-// will add an entitlement check once payments are built).
+// user may call this (free-recording floor per ACCESS-MODEL; the entitlement
+// gate on the HTTP handler enforces ownership for paid classes).
 func (s *Service) ListCompleted(ctx context.Context, sessionID string) ([]store.Recording, error) {
 	return s.repo.CompletedRecordingsBySession(ctx, sessionID)
+}
+
+// Recording returns a single recording by id (used by the serving-authz check).
+func (s *Service) Recording(ctx context.Context, id string) (store.Recording, bool, error) {
+	return s.repo.RecordingByID(ctx, id)
+}
+
+// AuditPlayback records that subjectID was authorised to fetch rec's bytes
+// (ADR-011 recording.played). The actor is the viewer; the target is the
+// recording. Metadata is left empty so the entry round-trips the signed bytes.
+func (s *Service) AuditPlayback(ctx context.Context, subjectID string, rec store.Recording) error {
+	return s.repo.AppendAudit(ctx, store.AuditInput{
+		ActorID:    subjectID,
+		ActorRole:  contracts.AuditRoleSelf,
+		Action:     contracts.ActionRecordingPlayed,
+		TargetType: "recording",
+		TargetID:   rec.ID,
+	})
 }
 
 // newID returns a 26-char Crockford-base32 record id (ULID-shaped, identity

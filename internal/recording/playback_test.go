@@ -2,24 +2,26 @@ package recording
 
 import (
 	"net/url"
-	"strconv"
 	"testing"
 	"time"
+
+	"github.com/jcrexon/laplat/internal/store"
 )
 
-// A minted playback URL's expiry honours the configured TTL (ADR-011: the leak
-// window is short and configurable, not a hardcoded hour).
-func TestBuildPlaybackURL_HonoursTTL(t *testing.T) {
+// A minted playback URL carries a per-viewer, per-recording token whose expiry
+// honours the configured TTL (ADR-011).
+func TestPlaybackURL_TokenAndTTL(t *testing.T) {
+	fixed := time.Unix(1_700_000_000, 0)
 	h := &Handler{
 		recordingsBase:   "http://rec.example",
 		filePrefix:       "/out/",
 		recordingsSecret: "s3cr3t",
 		playbackTTL:      2 * time.Minute,
+		now:              func() time.Time { return fixed },
 	}
-	lo := time.Now().Add(2 * time.Minute).Unix()
-	raw := h.buildPlaybackURL("/out/room.mp4")
-	hi := time.Now().Add(2 * time.Minute).Unix()
+	rec := store.Recording{ID: "REC1", SessionID: "S1", OutputURI: "/out/room.mp4"}
 
+	raw := h.playbackURL(rec, "viewer-1")
 	if raw == "" {
 		t.Fatal("expected a signed playback URL")
 	}
@@ -27,15 +29,25 @@ func TestBuildPlaybackURL_HonoursTTL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Query().Get("md5") == "" {
-		t.Error("signed URL missing md5 token")
+	if u.Path != "/room.mp4" {
+		t.Errorf("path = %q, want /room.mp4", u.Path)
 	}
-	exp, err := strconv.ParseInt(u.Query().Get("expires"), 10, 64)
+	tok := u.Query().Get("t")
+	if tok == "" {
+		t.Fatal("URL missing playback token")
+	}
+
+	// The token round-trips to the viewer + recording and is valid at mint time.
+	subject, recID, err := parsePlaybackToken(tok, "s3cr3t", fixed)
 	if err != nil {
-		t.Fatalf("bad expires param: %v", err)
+		t.Fatalf("token should verify: %v", err)
 	}
-	if exp < lo || exp > hi {
-		t.Fatalf("expiry %d not within [%d,%d] (now+TTL)", exp, lo, hi)
+	if subject != "viewer-1" || recID != "REC1" {
+		t.Fatalf("token payload = (%q,%q), want (viewer-1, REC1)", subject, recID)
+	}
+	// It expires exactly playbackTTL later.
+	if _, _, err := parsePlaybackToken(tok, "s3cr3t", fixed.Add(2*time.Minute+time.Second)); err == nil {
+		t.Fatal("token past its TTL must be rejected")
 	}
 }
 
@@ -50,5 +62,14 @@ func TestWithPlaybackTTL(t *testing.T) {
 	WithPlaybackTTL(90 * time.Second)(h)
 	if h.playbackTTL != 90*time.Second {
 		t.Fatalf("TTL = %s, want 90s", h.playbackTTL)
+	}
+}
+
+// With no secret configured the URL is the dev fallback: unsigned, no token.
+func TestPlaybackURL_NoSecretIsUnsigned(t *testing.T) {
+	h := &Handler{recordingsBase: "http://rec.example", filePrefix: "/out/", now: time.Now}
+	got := h.playbackURL(store.Recording{ID: "R", OutputURI: "/out/a.mp4"}, "v")
+	if got != "http://rec.example/a.mp4" {
+		t.Fatalf("unsigned URL = %q", got)
 	}
 }
