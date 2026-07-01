@@ -497,10 +497,12 @@ Bytes never transit authd; nginx holds no secret (authd signs the token with
 `LAPLAT_RECORDINGS_SECRET`). What this deliberately does NOT change: the token is
 still URL-borne, but it is now scoped, short-lived, live-revocable and audited —
 possession alone no longer grants durable access.
-- **Residual — rate limiting.** `/v1/recordings/authz` sits behind the global
-  per-IP limiter, and nginx is a single source IP, so heavy scrubbing (many range
-  requests) could trip it. Follow-up: exempt the authz path or cache the
-  subrequest in nginx. Noted, not done.
+- **Residual — rate limiting (resolved).** `/v1/recordings/authz` sat behind the
+  global per-IP limiter, and nginx is a single source IP, so heavy scrubbing (many
+  range requests) could trip it. Fixed: `RateLimiter.LimitExcept` exempts the
+  server-to-server paths (`/v1/recordings/authz`, `/v1/webhooks/`) from the per-IP
+  limit — they carry their own token/signature auth, so the per-user limit does
+  not apply. nginx-side subrequest caching remains a possible optimisation.
 - **Verification.** Go side is unit + integration tested; the nginx/compose wiring
   is verified by inspection and needs a live `docker compose` smoke.
 

@@ -291,9 +291,12 @@ func run(log *slog.Logger) error {
 	}
 
 	// Rate-limit the API per client IP, but NOT the health probes (k8s must
-	// always reach them). Then wrap everything in request-id/logging/recovery.
+	// always reach them) nor the server-to-server endpoints, which arrive from a
+	// single source IP and carry their own auth: the nginx auth_request for
+	// recording playback (one subrequest per video range fetch) and the LiveKit
+	// egress webhooks. Then wrap everything in request-id/logging/recovery.
 	limiter := httpx.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
-	limitedAPI := limiter.Limit(api)
+	limitedAPI := limiter.LimitExcept(api, "/v1/recordings/authz", "/v1/webhooks/")
 	root := httpx.Chain(rootHandler(limitedAPI, pool),
 		httpx.RequestID,      // outermost: id available to logging + responses
 		httpx.AccessLog(log), // record every response (incl. 429/500)

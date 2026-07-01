@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -92,5 +93,24 @@ func (rl *RateLimiter) Limit(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// LimitExcept is Limit, but requests whose path has one of exemptPrefixes skip
+// the per-IP check. It exists for server-to-server endpoints (the nginx
+// auth_request for recording playback, LiveKit webhooks) that all arrive from a
+// single source IP and are authenticated by their own token/signature — a
+// per-user IP limit would wrongly throttle them (e.g. one auth_request fires per
+// video range fetch, so scrubbing a recording would exhaust the bucket).
+func (rl *RateLimiter) LimitExcept(next http.Handler, exemptPrefixes ...string) http.Handler {
+	limited := rl.Limit(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, p := range exemptPrefixes {
+			if strings.HasPrefix(r.URL.Path, p) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		limited.ServeHTTP(w, r)
 	})
 }

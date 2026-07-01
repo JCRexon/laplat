@@ -95,6 +95,41 @@ func TestRateLimiter_Middleware429(t *testing.T) {
 	}
 }
 
+func TestRateLimiter_LimitExcept(t *testing.T) {
+	rl := NewRateLimiter(1, 1) // 1 token, refills slowly
+	h := rl.LimitExcept(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), "/v1/recordings/authz", "/v1/webhooks/")
+
+	call := func(path string) int {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", path, nil)
+		req.RemoteAddr = "9.9.9.9:1234" // one IP, as nginx/LiveKit would be
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	// Exempt server-to-server paths never throttle, even from one IP in a burst.
+	for i := 0; i < 10; i++ {
+		if got := call("/v1/recordings/authz"); got != http.StatusOK {
+			t.Fatalf("exempt authz call %d = %d, want 200", i, got)
+		}
+	}
+	for i := 0; i < 10; i++ {
+		if got := call("/v1/webhooks/livekit"); got != http.StatusOK {
+			t.Fatalf("exempt webhook call %d = %d, want 200", i, got)
+		}
+	}
+
+	// A non-exempt path is still limited (burst 1, then 429).
+	if got := call("/v1/classes"); got != http.StatusOK {
+		t.Fatalf("first limited call = %d, want 200", got)
+	}
+	if got := call("/v1/classes"); got != http.StatusTooManyRequests {
+		t.Fatalf("second limited call = %d, want 429", got)
+	}
+}
+
 func TestClientIP_StripsPort(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "203.0.113.7:55555"
