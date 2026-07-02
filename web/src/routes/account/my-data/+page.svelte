@@ -21,7 +21,7 @@
   let sent = $derived(Boolean(form && "sent" in form && form.sent));
 </script>
 
-<div class="stack">
+<div class="stack page-narrow">
   <div class="head-row">
     <h1 class="section-title">My data</h1>
     {#if data.export}

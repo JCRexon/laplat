@@ -83,7 +83,11 @@ body {
 
 .theme-toggle { font-size: 1.1rem; line-height: 1; }
 
-.content { flex: 1; padding: 1.5rem; max-width: 720px; width: 100%; margin: 0 auto; }
+.content { flex: 1; padding: 1.5rem clamp(1rem, 3vw, 2.5rem); max-width: 1400px; width: 100%; margin: 0 auto; }
+
+/* Document-like pages (forms, ladders, exports) keep a readable measure
+   instead of stretching to the wide content column. */
+.page-narrow { max-width: 720px; width: 100%; margin-inline: auto; }
 
 .card {
   background: var(--card);

@@ -1,7 +1,14 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { enhance } from "$app/forms";
+  import RecordingPlayback from "$lib/components/RecordingPlayback.svelte";
+  import { pollWhileVisible } from "$lib/poll";
   import type { PageData, ActionData } from "./$types";
   let { data, form }: { data: PageData; form: ActionData } = $props();
+
+  // Live status changes while the page is open — poll so "Live now" (and the
+  // short-lived playback URLs) appear without a manual reload.
+  onMount(() => pollWhileVisible());
 
   function sessionKindLabel(kind: string) {
     return kind === "live" ? "Live" : kind === "group" ? "Group" : kind;
@@ -17,14 +24,6 @@
     if (status === "live") return "● Live now";
     if (status === "ended") return "Ended";
     return "Scheduled";
-  }
-
-  function formatDuration(startedAt: number, endedAt?: number): string {
-    if (!endedAt) return "";
-    const secs = endedAt - startedAt;
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}m ${s}s`;
   }
 
   const enrolledSet = $derived(new Set(data.enrolledIds));
@@ -92,33 +91,22 @@
       <ul class="session-list">
         {#each data.sessions as s (s.sessionId)}
           {@const recs = data.recordingsBySession[s.sessionId] ?? []}
-          <li class="session-row">
+          <li class="session-row" class:row-live={s.status === "live"}>
             <div class="session-meta">
-              <span class="session-kind">{sessionKindLabel(s.kind)}</span>
+              <span class="session-class">{s.classTitle}</span>
+              <span class="session-kind muted">{sessionKindLabel(s.kind)}</span>
               <span class="status-dot {statusBadgeClass(s.status)}">
                 {statusLabel(s.status)}
               </span>
             </div>
             <div class="session-actions">
-              {#if recs.length > 0}
-                <span class="rec-badge" title="Recording available">
-                  ⏺ {recs.length} recording{recs.length > 1 ? "s" : ""}
-                  {#if recs[0].endedAt}
-                    · {formatDuration(recs[0].startedAt, recs[0].endedAt)}
-                  {/if}
-                </span>
-                {#each recs as rec (rec.id)}
-                  {#if rec.playbackUrl}
-                    <a class="watch-btn" href={rec.playbackUrl} target="_blank" rel="noopener">
-                      Watch
-                    </a>
-                  {/if}
-                {/each}
-              {/if}
               {#if s.status === "live"}
                 <a class="join-btn" href={`/room/${s.sessionId}`}>Join →</a>
               {/if}
             </div>
+            {#if recs.length > 0}
+              <RecordingPlayback recordings={recs} />
+            {/if}
           </li>
         {/each}
       </ul>
@@ -271,6 +259,7 @@
   }
   .session-row {
     display: flex;
+    flex-wrap: wrap; /* the recording player spans a full row below the meta */
     align-items: center;
     justify-content: space-between;
     padding: 0.9rem 1.25rem;
@@ -278,6 +267,7 @@
     gap: 0.75rem;
   }
   .session-row:last-child { border-bottom: none; }
+  .row-live { background: var(--live-soft); }
 
   .session-meta {
     display: flex;
@@ -286,9 +276,15 @@
     flex: 1;
     min-width: 0;
   }
-  .session-kind {
+  .session-class {
     font-weight: 600;
     font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .session-kind {
+    font-size: 0.8rem;
     white-space: nowrap;
   }
 
@@ -317,26 +313,6 @@
     gap: 0.75rem;
     flex-shrink: 0;
   }
-
-  .rec-badge {
-    font-size: 0.78rem;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
-  .watch-btn {
-    flex-shrink: 0;
-    padding: 0.3rem 0.75rem;
-    background: transparent;
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 8px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-decoration: none;
-    transition: opacity 0.15s;
-  }
-  .watch-btn:hover { opacity: 0.8; }
 
   .join-btn {
     flex-shrink: 0;

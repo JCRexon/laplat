@@ -56,6 +56,15 @@
 {/if}
 
 <style>
+  /* A certificate is a document — keep it at a readable measure even in the
+     wide content column. */
+  .notice,
+  .cert-actions,
+  .certificate {
+    max-width: 720px;
+    margin-inline: auto;
+  }
+
   .notice {
     background: var(--card);
     border: 1px solid var(--line);

@@ -165,10 +165,12 @@
     color: var(--text);
   }
 
+  /* Cards flow left-to-right across the wide content column. */
   .class-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
     gap: 0.75rem;
+    align-items: start;
   }
 
   .class-card {

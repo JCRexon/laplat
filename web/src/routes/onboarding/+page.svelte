@@ -9,7 +9,7 @@
   let onPhoneCode = $derived(form?.phoneStep === "code");
 </script>
 
-<div class="card">
+<div class="card page-narrow">
   <div class="row spread">
     <h1>Your identity</h1>
     <span class="badge tier-{tier}">{TIER_LABEL[tier]}</span>

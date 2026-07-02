@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import RecordingPlayback from "$lib/components/RecordingPlayback.svelte";
+  import { pollWhileVisible } from "$lib/poll";
   import type { PageData } from "./$types";
   let { data }: { data: PageData } = $props();
 
@@ -11,6 +13,9 @@
   let mounted = $state(false);
   onMount(() => {
     mounted = true;
+    // Live status changes while the page is open — poll so "Live now" (and
+    // the short-lived playback URLs) appear without a manual reload.
+    return pollWhileVisible();
   });
 
   function statusLabel(status: string) {
@@ -113,22 +118,14 @@
               <!-- Ended sessions with recordings -->
               {#each endedWithRecs as s (s.sessionId)}
                 {@const recs = data.recordingsBySession[s.sessionId] ?? []}
-                <div class="session-row">
+                <div class="session-row session-recs">
                   <div class="session-info">
                     <span class="sess-badge s-ended">{statusLabel(s.status)}</span>
                     <span class="sess-label muted">
                       {recs.length} recording{recs.length > 1 ? "s" : ""}
                     </span>
                   </div>
-                  <div class="watch-links">
-                    {#each recs as rec (rec.id)}
-                      {#if rec.playbackUrl}
-                        <a href={rec.playbackUrl} class="watch-btn" target="_blank" rel="noopener">
-                          Watch
-                        </a>
-                      {/if}
-                    {/each}
-                  </div>
+                  <RecordingPlayback recordings={recs} />
                 </div>
               {/each}
             </div>
@@ -191,11 +188,12 @@
     box-shadow: 0 1px 0 var(--accent-press);
   }
 
-  /* Course list */
+  /* Course list — cards flow left-to-right across the wide content column. */
   .course-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
     gap: 1rem;
+    align-items: start;
   }
 
   .course-card {
@@ -336,6 +334,11 @@
     border-bottom: 1px solid var(--line);
   }
 
+  /* Rows hosting the recording player let it wrap onto its own full row. */
+  .session-recs {
+    flex-wrap: wrap;
+  }
+
   .session-row:last-child {
     border-bottom: none;
   }
@@ -369,13 +372,6 @@
     background: var(--line);
     opacity: 0.4;
     vertical-align: middle;
-  }
-
-  .watch-links {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    flex-shrink: 0;
   }
 
   /* Badges */
@@ -423,22 +419,6 @@
   .join-btn:active {
     transform: translateY(2px);
     box-shadow: 0 1px 0 var(--accent-press);
-  }
-
-  .watch-btn {
-    flex-shrink: 0;
-    padding: 0.3rem 0.75rem;
-    background: transparent;
-    color: var(--accent, #2563eb);
-    border: 1px solid var(--accent, #2563eb);
-    border-radius: 8px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-decoration: none;
-    transition: opacity 0.15s;
-  }
-  .watch-btn:hover {
-    opacity: 0.8;
   }
 
   /* Footer */
