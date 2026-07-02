@@ -39,7 +39,18 @@ type Handler struct {
 	// subject|recordingID, guarded by playedMu.
 	playedMu   sync.Mutex
 	playedSeen map[string]time.Time
+
+	// webhook replay dedupe (ADR-009 defence-in-depth): reject a redelivered
+	// webhook outright, keyed by its DedupKey (jti/body-hash), within a TTL.
+	// Process-local; the monotonic recording status is the authoritative guard.
+	webhookMu   sync.Mutex
+	seenWebhook map[string]time.Time
 }
+
+// webhookDedupeTTL bounds how long a delivered webhook key is remembered — long
+// enough to cover the token's own validity window, after which ParseWebhook
+// rejects a replay on expiry anyway.
+const webhookDedupeTTL = 10 * time.Minute
 
 // defaultPlaybackTTL bounds how long a signed playback URL stays valid — the
 // leak window of the bearer-style URL until the auth_request identity binding
@@ -88,6 +99,7 @@ func NewHandler(svc *Service, validator *token.Validator, apiKey, apiSecret, rec
 		mux:         http.NewServeMux(),
 		now:         time.Now,
 		playedSeen:  map[string]time.Time{},
+		seenWebhook: map[string]time.Time{},
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -314,12 +326,54 @@ func (h *Handler) liveKitWebhook(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "webhook verification failed")
 		return
 	}
+	// Replay dedupe (ADR-009 defence-in-depth): a redelivered webhook is ack'd
+	// without reprocessing. The monotonic recording status is the authoritative
+	// guard; this just avoids the redundant work.
+	if h.webhookDuplicate(ev.DedupKey) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err := h.svc.HandleWebhookEvent(r.Context(), ev); err != nil {
 		h.log.Error("livekit webhook: applying event failed", "event", ev.Event, "err", err)
 		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	// Remember only after successful processing, so a failed delivery can be
+	// retried (reprocessing is safe — the status transition is monotonic).
+	h.rememberWebhook(ev.DedupKey)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// webhookDuplicate reports whether a webhook with this key was already processed
+// within the dedupe window (and opportunistically evicts stale keys). An empty
+// key never dedupes (cannot identify the delivery).
+func (h *Handler) webhookDuplicate(key string) bool {
+	if key == "" {
+		return false
+	}
+	now := h.now()
+	h.webhookMu.Lock()
+	defer h.webhookMu.Unlock()
+	dup := false
+	if t, ok := h.seenWebhook[key]; ok && now.Sub(t) < webhookDedupeTTL {
+		dup = true
+	}
+	for k, t := range h.seenWebhook {
+		if now.Sub(t) >= webhookDedupeTTL {
+			delete(h.seenWebhook, k)
+		}
+	}
+	return dup
+}
+
+// rememberWebhook records a successfully-processed webhook key.
+func (h *Handler) rememberWebhook(key string) {
+	if key == "" {
+		return
+	}
+	h.webhookMu.Lock()
+	defer h.webhookMu.Unlock()
+	h.seenWebhook[key] = h.now()
 }
 
 func recordingJSON(r store.Recording) map[string]any {

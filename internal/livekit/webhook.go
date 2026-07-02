@@ -17,6 +17,10 @@ import (
 type WebhookEvent struct {
 	Event      string      `json:"event"`
 	EgressInfo *EgressInfo `json:"egressInfo"`
+	// DedupKey identifies this delivery for replay dedupe (ADR-009): the token's
+	// jti when present, else the verified body SHA-256 (a replayed byte-identical
+	// body reuses it). Set by ParseWebhook, not decoded from the body.
+	DedupKey string `json:"-"`
 }
 
 // Egress lifecycle webhook event names.
@@ -80,12 +84,17 @@ func ParseWebhook(r *http.Request, apiKey, apiSecret string) (*WebhookEvent, err
 	if err := json.Unmarshal(body, &ev); err != nil {
 		return nil, fmt.Errorf("livekit webhook: decoding payload: %w", err)
 	}
+	ev.DedupKey = claims.JTI
+	if ev.DedupKey == "" {
+		ev.DedupKey = claims.SHA256 // hex body hash, always present and verified
+	}
 	return &ev, nil
 }
 
 type webhookClaims struct {
 	Issuer string `json:"iss"`
 	SHA256 string `json:"sha256"`
+	JTI    string `json:"jti"`
 	Exp    int64  `json:"exp"`
 	Nbf    int64  `json:"nbf"`
 }

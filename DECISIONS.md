@@ -331,6 +331,13 @@ a later webhook (acceptable — terminal is terminal). **Deferred.** `jti` dedup
 arises, or replay defence-in-depth is wanted (add `jti`). **Confidence/review.**
 High; shipped with unit + integration tests.
 
+**Update (2026-06-28) — replay dedupe shipped (defence-in-depth).** `ParseWebhook`
+now exposes a `DedupKey` (the token's `jti` if present, else the verified body
+SHA-256), and the webhook handler drops a redelivered webhook without
+reprocessing, keyed by it within a TTL. Process-local and best-effort — the
+monotonic status remains the authoritative guard — and it remembers a key only
+after successful processing, so a failed delivery can still be retried.
+
 ---
 
 ## ADR-010 — Presence auditing: Merkle-checkpointed, Vault-signed, hot-path events in the DB
