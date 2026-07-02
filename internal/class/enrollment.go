@@ -36,6 +36,27 @@ func (s *Service) Enroll(ctx context.Context, claims *contracts.AccessTokenClaim
 			return err
 		}
 	}
+	// Capacity gate (soft cap): a new member is refused once the roster is full.
+	// Skipped for an already-enrolled user so re-enrolling stays idempotent, and
+	// for capacity 0 (unlimited). The count-then-insert is not atomic, so a burst
+	// may overshoot slightly — acceptable for a roster cap.
+	if capacity, ok, err := s.repo.ClassCapacity(ctx, classID); err != nil {
+		return err
+	} else if ok && capacity > 0 {
+		already, err := s.repo.IsEnrolled(ctx, classID, claims.Subject)
+		if err != nil {
+			return err
+		}
+		if !already {
+			n, err := s.repo.CountClassMembers(ctx, classID)
+			if err != nil {
+				return err
+			}
+			if n >= capacity {
+				return ErrClassFull
+			}
+		}
+	}
 	return s.repo.EnrollClass(ctx, classID, claims.Subject)
 }
 
