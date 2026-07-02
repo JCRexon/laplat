@@ -115,6 +115,62 @@ func TestClass_Authz(t *testing.T) {
 	}
 }
 
+// A capacity cap gates enrollment: once full, a new member is refused, but an
+// already-enrolled member re-enrolling stays idempotent, raising the cap admits
+// more, and capacity 0 is unlimited. Only the owner may set it.
+func TestClass_Capacity(t *testing.T) {
+	svc, st, ctx := newSvc(t)
+	instr := mkUser(t, st, ctx, "cap-instr", contracts.IdentityPhoneVerified, true)
+	c, _ := svc.Create(ctx, instr, "Small", "")
+	if err := svc.SetStatus(ctx, instr, c.ID, "published"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetCapacity(ctx, instr, c.ID, 1); err != nil {
+		t.Fatalf("set capacity: %v", err)
+	}
+
+	u1 := mkUser(t, st, ctx, "cap-u1", contracts.IdentityDeclared, false)
+	u2 := mkUser(t, st, ctx, "cap-u2", contracts.IdentityDeclared, false)
+
+	if err := svc.Enroll(ctx, u1, c.ID); err != nil {
+		t.Fatalf("u1 enroll: %v", err)
+	}
+	// Already-enrolled re-enroll is a no-op even at capacity.
+	if err := svc.Enroll(ctx, u1, c.ID); err != nil {
+		t.Fatalf("u1 re-enroll should be a no-op: %v", err)
+	}
+	// A new member is refused — full.
+	if err := svc.Enroll(ctx, u2, c.ID); err != class.ErrClassFull {
+		t.Fatalf("u2 enroll = %v, want ErrClassFull", err)
+	}
+	// Raising the cap admits u2.
+	if err := svc.SetCapacity(ctx, instr, c.ID, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Enroll(ctx, u2, c.ID); err != nil {
+		t.Fatalf("u2 after raise: %v", err)
+	}
+
+	// Capacity 0 = unlimited.
+	c2, _ := svc.Create(ctx, instr, "Unlimited", "")
+	if err := svc.SetStatus(ctx, instr, c2.ID, "published"); err != nil {
+		t.Fatal(err)
+	}
+	u3 := mkUser(t, st, ctx, "cap-u3", contracts.IdentityDeclared, false)
+	if err := svc.Enroll(ctx, u3, c2.ID); err != nil {
+		t.Fatalf("unlimited enroll: %v", err)
+	}
+
+	// Only the owner may set capacity; negative is rejected.
+	other := mkUser(t, st, ctx, "cap-other", contracts.IdentityPhoneVerified, true)
+	if err := svc.SetCapacity(ctx, other, c.ID, 5); err != class.ErrForbidden {
+		t.Fatalf("non-owner setCapacity = %v, want ErrForbidden", err)
+	}
+	if err := svc.SetCapacity(ctx, instr, c.ID, -1); err != class.ErrBadCapacity {
+		t.Fatalf("negative capacity = %v, want ErrBadCapacity", err)
+	}
+}
+
 // Bad input is rejected.
 func TestClass_BadInput(t *testing.T) {
 	svc, st, ctx := newSvc(t)

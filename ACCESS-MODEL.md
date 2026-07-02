@@ -98,7 +98,7 @@ downgrade takes effect immediately rather than waiting out a token's TTL):
 | Browse a class's schedule | `declared` | `ListForClass`/`Detail` — [`internal/session/session.go`](internal/session/session.go) |
 | Create / join a live session | `phone_verified` | `MeetsPhoneVerification()` — [`internal/session/session.go`](internal/session/session.go) |
 | Create a class | `phone_verified` + `can_instruct` | `Create` — [`internal/class/class.go`](internal/class/class.go) |
-| Enroll in a class | `declared` (+ entitlement if paid) | `Enroll` — [`internal/class/enrollment.go`](internal/class/enrollment.go) |
+| Enroll in a class | `declared` (+ entitlement if paid; refused if the class is at `capacity`) | `Enroll` — [`internal/class/enrollment.go`](internal/class/enrollment.go) |
 | Play a recording | none if free; entitlement if paid; identity-bound + audited at serve time (ADR-011) | `playback` + `authz` — [`internal/recording/http.go`](internal/recording/http.go) |
 | Grant / revoke an entitlement | `platform_moderator` (until a payment provider drives it) | [`internal/entitlement`](internal/entitlement) |
 | Become an instructor | `verified` (eKYC) | `POST /v1/instructor/apply` — [`internal/auth`](internal/auth) |
@@ -132,5 +132,4 @@ Claim helpers (`MeetsAdultDeclaration`, `MeetsPhoneVerification`,
 - **In review:** Zalo (OAuth) sign-in.
 - **Planned:** the payment provider (Stripe/VNPay) — the only remaining piece of
   payments now that the entitlements model + gate are built; on a completed charge
-  it calls `entitlement.Service.Grant`. Also class capacity limits (a max on the
-  per-class roster).
+  it calls `entitlement.Service.Grant`.

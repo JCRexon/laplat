@@ -26,6 +26,34 @@ func (s *Store) UnenrollClass(ctx context.Context, classID, userID string) error
 	return err
 }
 
+// CountClassMembers returns the number of users enrolled in a class — the roster
+// size the capacity gate checks.
+func (s *Store) CountClassMembers(ctx context.Context, classID string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM class_members WHERE class_id = $1`, classID).Scan(&n)
+	return n, err
+}
+
+// ClassCapacity returns a class's enrollment cap (0 = unlimited) and whether the
+// class exists. A one-column read so the sqlc-generated Class struct is untouched.
+func (s *Store) ClassCapacity(ctx context.Context, classID string) (int, bool, error) {
+	var cap int
+	err := s.pool.QueryRow(ctx, `SELECT capacity FROM classes WHERE id = $1`, classID).Scan(&cap)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return cap, true, nil
+}
+
+// SetClassCapacity sets a class's enrollment cap (0 = unlimited).
+func (s *Store) SetClassCapacity(ctx context.Context, classID string, capacity int) error {
+	_, err := s.pool.Exec(ctx, `UPDATE classes SET capacity = $2 WHERE id = $1`, classID, capacity)
+	return err
+}
+
 // IsEnrolled reports whether the user is a member of the class.
 func (s *Store) IsEnrolled(ctx context.Context, classID, userID string) (bool, error) {
 	var exists bool

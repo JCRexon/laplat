@@ -32,6 +32,7 @@ func NewHandler(svc *Service, validator *token.Validator) *Handler {
 	h.mux.Handle("POST /v1/classes/{id}/enroll", h.auth(h.enroll))
 	h.mux.Handle("DELETE /v1/classes/{id}/enroll", h.auth(h.unenroll))
 	h.mux.Handle("POST /v1/classes/{id}/status", h.auth(h.setStatus))
+	h.mux.Handle("POST /v1/classes/{id}/capacity", h.auth(h.setCapacity))
 	return h
 }
 
@@ -101,6 +102,10 @@ type statusBody struct {
 	Status string `json:"status"`
 }
 
+type capacityBody struct {
+	Capacity int `json:"capacity"`
+}
+
 func (h *Handler) enroll(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
 	if err := h.svc.Enroll(r.Context(), claims, r.PathValue("id")); err != nil {
 		writeServiceErr(w, err)
@@ -142,6 +147,18 @@ func (h *Handler) setStatus(w http.ResponseWriter, r *http.Request, claims *cont
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) setCapacity(w http.ResponseWriter, r *http.Request, claims *contracts.AccessTokenClaims) {
+	var req capacityBody
+	if !decode(w, r, &req) {
+		return
+	}
+	if err := h.svc.SetCapacity(r.Context(), claims, r.PathValue("id"), req.Capacity); err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // --- helpers -----------------------------------------------------------------
 
 func classView(c store.Class) map[string]string {
@@ -161,8 +178,10 @@ func writeServiceErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusPaymentRequired, "this class requires purchase")
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrClassNotFound):
 		writeErr(w, http.StatusNotFound, "class not found")
-	case errors.Is(err, ErrBadTitle), errors.Is(err, ErrBadStatus):
+	case errors.Is(err, ErrBadTitle), errors.Is(err, ErrBadStatus), errors.Is(err, ErrBadCapacity):
 		writeErr(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrClassFull):
+		writeErr(w, http.StatusConflict, "class is full")
 	default:
 		writeErr(w, http.StatusInternalServerError, "internal error")
 	}

@@ -18,11 +18,13 @@ const maxTitleLen = 200
 
 // Errors (mapped to status codes by the HTTP layer).
 var (
-	ErrForbidden  = errors.New("class: forbidden for this tier or capability")
-	ErrNotFound   = errors.New("class: not found")
-	ErrBadTitle   = errors.New("class: title is required")
-	ErrBadStatus  = errors.New("class: invalid status transition")
-	validStatuses = map[string]bool{"draft": true, "published": true, "archived": true}
+	ErrForbidden   = errors.New("class: forbidden for this tier or capability")
+	ErrNotFound    = errors.New("class: not found")
+	ErrBadTitle    = errors.New("class: title is required")
+	ErrBadStatus   = errors.New("class: invalid status transition")
+	ErrBadCapacity = errors.New("class: capacity must be >= 0")
+	ErrClassFull   = errors.New("class: enrollment is at capacity")
+	validStatuses  = map[string]bool{"draft": true, "published": true, "archived": true}
 )
 
 // Repo is the persistence the service needs (*store.Store satisfies it).
@@ -39,6 +41,11 @@ type Repo interface {
 	IsEnrolled(ctx context.Context, classID, userID string) (bool, error)
 	EnrolledClassesWithDetails(ctx context.Context, userID string) ([]store.Class, error)
 	EnrolledClassIDs(ctx context.Context, userID string) ([]string, error)
+
+	// Capacity.
+	CountClassMembers(ctx context.Context, classID string) (int, error)
+	ClassCapacity(ctx context.Context, classID string) (int, bool, error)
+	SetClassCapacity(ctx context.Context, classID string, capacity int) error
 }
 
 // EntitlementGate decides whether a caller may access a (possibly paid) class.
@@ -110,6 +117,19 @@ func (s *Service) SetStatus(ctx context.Context, claims *contracts.AccessTokenCl
 		return err
 	}
 	return s.repo.UpdateClassStatus(ctx, classID, status)
+}
+
+// SetCapacity sets a class's enrollment cap (0 = unlimited); owner only. It does
+// not evict existing members if the new cap is below the current roster — it only
+// gates future enrollments.
+func (s *Service) SetCapacity(ctx context.Context, claims *contracts.AccessTokenClaims, classID string, capacity int) error {
+	if capacity < 0 {
+		return ErrBadCapacity
+	}
+	if err := s.requireOwner(ctx, claims.Subject, classID); err != nil {
+		return err
+	}
+	return s.repo.SetClassCapacity(ctx, classID, capacity)
 }
 
 func (s *Service) requireOwner(ctx context.Context, userID, classID string) error {
