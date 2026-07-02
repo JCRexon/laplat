@@ -35,7 +35,7 @@
   }
 </script>
 
-<div class="stack">
+<div class="stack page-narrow">
   <h1 class="section-title">My account</h1>
 
   <!-- ─── Connected login methods ─────────────────────────────────── -->

@@ -3,6 +3,12 @@ import type { Actions, PageServerLoad } from "./$types";
 import { api, ApiError } from "$lib/server/authd";
 import type { ClassView, SessionSummary, RecordingView } from "$lib/types";
 
+// A catalog session carries the title of the class it belongs to, so the
+// session list can say *what* is live, not just that something is.
+export type CatalogSession = SessionSummary & { classTitle: string };
+
+const STATUS_ORDER: Record<string, number> = { live: 0, scheduled: 1, ended: 2 };
+
 export const load: PageServerLoad = async ({ locals, cookies }) => {
   if (!locals.me) throw redirect(303, "/signin");
 
@@ -13,12 +19,13 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
   // and flatten. Listing requires the declared tier: a 403 means sessions are
   // locked for this user. A 404 means the endpoint isn't mounted (LiveKit not
   // configured) — treat that as "sessions unavailable", not an error.
-  let sessions: SessionSummary[] = [];
+  let sessions: CatalogSession[] = [];
   let sessionsLocked = false;
   const perClass = await Promise.all(
     classes.map(async (c) => {
       try {
-        return (await api<{ sessions: SessionSummary[] }>(cookies, `/v1/sessions?classId=${c.id}`)).sessions ?? [];
+        const rows = (await api<{ sessions: SessionSummary[] }>(cookies, `/v1/sessions?classId=${c.id}`)).sessions ?? [];
+        return rows.map((s): CatalogSession => ({ ...s, classTitle: c.title }));
       } catch (e) {
         if (e instanceof ApiError && e.status === 403) {
           sessionsLocked = true;
@@ -29,7 +36,10 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
       }
     })
   );
-  sessions = perClass.flat();
+  // Live sessions surface first, then upcoming, then ended.
+  sessions = perClass.flat().sort(
+    (a, b) => (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3)
+  );
 
   // Fetch completed recordings for each session in parallel. 404 means the
   // recording endpoint isn't mounted (LiveKit not configured); ignore it.

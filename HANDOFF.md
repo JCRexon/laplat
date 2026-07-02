@@ -4,7 +4,7 @@ A running snapshot of where the project is and what's next, so a fresh session
 (or a returning human) can get up to speed without re-reading the whole chat
 history. Update the "Current state" and "Next tasks" sections as work lands.
 
-_Last updated: 2026-06-28 — after presence checkpoints (#51), entitlements (#52), ADR-011 recording-playback authz (#56/#57), entitlement audit (#61), and recording start quotas (#59/#60/#62)._
+_Last updated: 2026-07-02 — after the learner UI polish pass: live-status polling, inline recording playback, and the wide-layout redesign (branch `claude/onboarding-docs-review-2bl1c7`)._
 
 ## What laplat is
 
@@ -146,6 +146,20 @@ funnel; owned/paid content is entitlement-gated, not tier-gated.
   - Session statuses: `scheduled` → `live` → `ended`. Start and End buttons POST
     to `?/startSession` and `?/endSession` actions via `use:enhance` (no reload).
   - Nav link "My classes" shown only to instructors.
+- **Learner session + playback UI** (current branch): the catalog session list
+  shows the owning class's title per row, sorts live sessions first, highlights
+  the live row, and shows a Join button; catalog and dashboard **poll-refresh**
+  (`web/src/lib/poll.ts` — `invalidateAll()` every 20s while the tab is visible,
+  and on tab-refocus), so "Live now" appears without a manual reload and the
+  short-TTL playback URLs stay fresh. Recordings play in an **inline expandable
+  video player** (`web/src/lib/components/RecordingPlayback.svelte`, shared by
+  catalog + dashboard) instead of opening the raw file in a new tab; the player
+  snapshots its URL at click time so a poll tick doesn't restart playback.
+- **Wide layout** (current branch): the content column is now 1400px max with
+  responsive padding (was 720px), so the catalog class grid and the dashboard /
+  instructor course cards flow left-to-right across the page. Document-like
+  pages (onboarding, account, my-data, certificate) keep a readable 720px
+  measure via a `page-narrow` utility.
 - Frontend: SvelteKit + adapter-node BFF (tokens in httpOnly cookies,
   server-side load/actions) — chosen to minimise client-side data storage.
 - Local stack: Docker Compose (`compose.yaml`) — db → migrate → seed → authd →
@@ -169,19 +183,16 @@ unblocked list — these close loops on features already half-built.
 
 ### Unblocked — buildable now (no external dependency)
 
-1. **Learner session UI**. The instructor can now start/end sessions from
-   `/classes`. Learners need the other half: surface live sessions in the catalog
-   (`/catalog`) with a Join button that POSTs to `POST /v1/sessions/{id}/join`
-   and redirects to `/room/{id}`. The room page and the join endpoint already
-   exist — the gap is that the catalog doesn't show join links keyed off live
-   status. Add a polling/SSE refresh so "Live now" appears without a manual
-   reload. **Highest leverage**: it completes the create→join session loop.
+1. ~~**Learner session UI**.~~ **Done** (current branch): the catalog surfaces
+   live sessions with the owning class's title, live-first ordering, and a Join
+   button; catalog and dashboard poll-refresh (20s, visibility-aware) so "Live
+   now" appears without a manual reload. The create→join session loop is closed.
 
-2. **Recording playback surface**. After a session ends, the instructor (and
-   enrolled learners) should be able to play back recordings from the room page
-   or a class-detail view. `GET /v1/recordings/sessions/{id}/playback` is fully
-   implemented and returns identity-bound signed URLs (ADR-011) — this is purely
-   a missing UI surface.
+2. ~~**Recording playback surface**.~~ **Done** (current branch): completed
+   recordings play in an inline expandable player on the catalog and dashboard
+   (shared `RecordingPlayback.svelte`), fed by the identity-bound signed URLs
+   from `GET /v1/recordings/sessions/{id}/playback` (ADR-011). Poll-refresh
+   keeps the 5-minute-TTL URLs fresh while a page stays open.
 
 3. ~~**Entitlements scaffolding** (the non-provider half of payments).~~ **Done**
    ([`internal/entitlement`](internal/entitlement), migration 00020): durable
